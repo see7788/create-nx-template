@@ -3,7 +3,7 @@ name: 发布到 npm
 on:
   push:
     tags:
-      - 'v*'  # 当你打标签如 v0.1.0 时触发
+      - 'v*'  # 当你打标签如 v1.1.4 时触发
 
 jobs:
   publish:
@@ -12,14 +12,20 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
       - name: 设置 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
           registry-url: https://registry.npmjs.org/
+          cache: 'pnpm'  # 启用 pnpm 缓存
 
-      - name: 安装依赖（可选）
-        run: npm ci
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
 
       - name: 发布到 npm
         run: npm publish --access public
