@@ -1,11 +1,11 @@
 {
-  "name": "create-7788-template",
+  "name": "@see7788/create-template",
   "version": "1.1.6",
   "description": "A modern Electron app template creator",
   "main": "index.js",
   "type": "module",
   "bin": {
-    "create-emplate": "index.js"
+    "create-template": "index.js"
   },
   "files": [
     "index.js"
@@ -26,5 +26,7 @@
   "license": "MIT",
   "dependencies": {
     "prompts": "^2.4.2"
-  }
+  },
+  "homepage": "https://github.com/see7788/create-7788-template#readme",
+  "bugs": "https://github.com/see7788/create-7788-template/issues"
 }
