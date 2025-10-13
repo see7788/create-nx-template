@@ -6,7 +6,7 @@ import degit from 'degit';
 import prompts from 'prompts';
 
 const TEMPLATES = [
-  ['see7788/electron-template', 'Default Template'],
+  ['git@github.com:see7788/electron-template.git', 'Default Template'],
 ];
 
 /**
