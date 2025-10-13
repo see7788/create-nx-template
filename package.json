@@ -1,6 +1,6 @@
 {
   "name": "create-emplate",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A modern Electron app template creator",
   "main": "index.js",
   "type": "module",
