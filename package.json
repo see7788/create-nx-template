@@ -1,0 +1,27 @@
+{
+  "name": "create-emplate",
+  "version": "0.1.0",
+  "description": "A modern Electron app template creator",
+  "main": "index.js",
+  "type": "module",
+  "bin": {
+    "create-emplate": "index.js"
+  },
+  "files": [
+    "index.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "prepublishOnly": "echo '发布到 npm ...'"
+  },
+  "keywords": [
+    "create",
+    "electron",
+    "template",
+    "boilerplate"
+  ],
+  "author": "see7788",
+  "license": "MIT"
+}
