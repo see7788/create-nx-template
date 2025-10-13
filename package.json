@@ -1,6 +1,6 @@
 {
   "name": "create-nx-template",
-  "version": "1.2.11",
+  "version": "1.2.12",
   "description": "A modern Electron app template creator",
   "main": "index.js",
   "type": "module",
@@ -8,7 +8,7 @@
     "release": "create-nx-template --release"
   },
   "bin": {
-    "create-template": "index.js"
+    "create-nx-template": "index.js"
   },
   "files": [
     "index.js"
