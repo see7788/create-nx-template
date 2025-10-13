@@ -1,0 +1,27 @@
+name: 发布到 npm
+
+on:
+  push:
+    tags:
+      - 'v*'  # 当你打标签如 v0.1.0 时触发
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          registry-url: https://registry.npmjs.org/
+
+      - name: 安装依赖（可选）
+        run: npm ci
+
+      - name: 发布到 npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
