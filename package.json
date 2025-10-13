@@ -1,6 +1,6 @@
 {
   "name": "create-nx-template",
-  "version": "1.2.15",
+  "version": "1.2.16",
   "description": "A modern Electron app template creator",
   "main": "index.js",
   "type": "module",
@@ -28,5 +28,13 @@
   "dependencies": {
     "degit": "^2.8.4",
     "prompts": "^2.4.2"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/see7788/create-nx-template.git"
+  },
+  "bugs": {
+    "url": "https://github.com/see7788/create-nx-template/issues"
+  },
+  "homepage": "https://github.com/see7788/create-nx-template"
 }
