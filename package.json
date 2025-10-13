@@ -1,6 +1,6 @@
 {
   "name": "@see7788/create-template",
-  "version": "1.1.8",
+  "version": "1.2.0",
   "description": "A modern Electron app template creator",
   "main": "index.js",
   "type": "module",

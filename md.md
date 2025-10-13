@@ -17,13 +17,11 @@ git pull origin master
 git add package.json
 
 # 6. 提交更改
-git commit -m "release: v1.1.8"
+git commit -m "release: v1.2.0"
 
 # 7. 推送到 GitHub
 git push origin master
-
-# 8. 打标签 v1.1.8
-git tag v1.1.8
+git tag v1.2.0
 
 # 9. 推送标签到 GitHub
-git push origin v1.1.8
+git push origin v1.2.0
