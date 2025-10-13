@@ -1,18 +1,19 @@
 {
   "name": "create-nx-template",
-  "version": "1.2.12",
+  "version": "1.2.13",
   "description": "A modern Electron app template creator",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "release": "create-nx-template --release"
   },
+  "files": [
+    "index.js",
+    "scripts/"
+  ],
   "bin": {
     "create-nx-template": "index.js"
   },
-  "files": [
-    "index.js"
-  ],
   "engines": {
     "node": ">=18"
   },
