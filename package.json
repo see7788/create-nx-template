@@ -23,5 +23,8 @@
     "boilerplate"
   ],
   "author": "see7788",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "prompts": "^2.4.2"
+  }
 }
