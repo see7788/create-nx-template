@@ -1,6 +1,6 @@
 {
   "name": "create-nx-template",
-  "version": "1.2.14",
+  "version": "1.2.15",
   "description": "A modern Electron app template creator",
   "main": "index.js",
   "type": "module",
