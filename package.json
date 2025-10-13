@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "prepublishOnly": "echo '发布到 npm ...'"
+    "release": "create-nx-template --release"
   },
   "bin": {
     "create-template": "index.js"
@@ -25,7 +25,7 @@
   "author": "see7788",
   "license": "MIT",
   "dependencies": {
-    "prompts": "^2.4.2",
-    "degit": "^3.1.0"
+    "degit": "^2.8.4",
+    "prompts": "^2.4.2"
   }
 }
