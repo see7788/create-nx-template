@@ -1,9 +1,12 @@
 {
   "name": "create-nx-template",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "description": "A modern Electron app template creator",
   "main": "index.js",
   "type": "module",
+  "scripts": {
+    "prepublishOnly": "echo '发布到 npm ...'"
+  },
   "bin": {
     "create-template": "index.js"
   },
@@ -12,9 +15,6 @@
   ],
   "engines": {
     "node": ">=18"
-  },
-  "scripts": {
-    "prepublishOnly": "echo '发布到 npm ...'"
   },
   "keywords": [
     "create",
