@@ -16,7 +16,7 @@ const TEMPLATES = [
 export async function createProject(projectName) {
   // ✅ 1. 如果项目名为空、无效，交互式询问
   while (!projectName || typeof projectName !== 'string' || projectName.trim() === '' || projectName.includes('/')) {
-    const message = projectName?.includes('/') 
+    const message = projectName?.includes('/')
       ? '项目名不能包含斜杠 "/"，请重新输入'
       : '项目名不能为空，请输入项目名（例如：my-app）';
 
@@ -40,7 +40,6 @@ export async function createProject(projectName) {
   }
 
   projectName = projectName.trim();
-
   const targetDir = path.resolve(projectName);
 
   // ✅ 2. 检查目录是否已存在
@@ -91,7 +90,7 @@ export async function createProject(projectName) {
     const custom = await prompts({
       type: 'text',
       name: 'repo',
-      message: '请输入 GitHub 仓库（格式：owner/repo 或 owner/repo#branch）',
+      message: '请输入 GitHub 仓库（格式：owner/repo 或 git@github.com:owner/repo.git）',
       validate: (input) => input ? true : '仓库地址不能为空'
     });
     if (!custom.repo) {
@@ -105,11 +104,16 @@ export async function createProject(projectName) {
 
   console.log(`\n🔗 使用模板：${repo}\n`);
 
+  // ✅ 强制 degit 使用 Git + SSH，不降级为 HTTPS
   const emitter = degit(repo, {
-    cache: false,
-    force: false,
-    verbose: true
+    mode: 'git',           // 强制使用 git clone
+    cache: false,          // 不使用缓存
+    force: false,          // 不强制覆盖（由前面逻辑控制）
+    verbose: true          // 显示详细日志
   });
+
+  // ✅ 关键：设置 GIT_SSH_COMMAND，确保 SSH 正常工作
+  process.env.GIT_SSH_COMMAND = 'ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null';
 
   try {
     await emitter.clone(targetDir);
@@ -138,7 +142,26 @@ export async function createProject(projectName) {
     showSuccess(projectName, detectPackageManager());
 
   } catch (error) {
-    handleError(error, targetDir, projectName);
+    // ✅ 增强错误提示
+    if (error.message.includes('Permission denied (publickey)')) {
+      console.error('\n❌ SSH 权限被拒绝，请检查：');
+      console.error('   1. 是否已生成 SSH 密钥（~/.ssh/id_ed25519）');
+      console.error('   2. 是否已运行：ssh-add ~/.ssh/id_ed25519');
+      console.error('   3. 是否已将公钥添加到 GitHub：https://github.com/settings/keys');
+      console.error('   4. 测试命令：ssh -T git@github.com');
+    } else if (error.message.includes('ENOTFOUND')) {
+      console.error('❌ 网络错误：无法连接 GitHub');
+    } else if (error.message.includes('404')) {
+      console.error('❌ 模板仓库不存在');
+    } else {
+      console.error('❌ 创建失败：', error.message);
+    }
+
+    try {
+      await fs.rm(targetDir, { recursive: true, force: true });
+      console.log(`🧹 已清理 ${projectName}`);
+    } catch {}
+    process.exit(1);
   }
 }
 

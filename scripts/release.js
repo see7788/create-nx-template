@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 
 // ================================
-// 🚀 极简 Git 发布脚本（修复路径）
+// 🚀 极简 Git 发布脚本（修复路径 + 完整文件推送）
 // ================================
 
 // ✅ 兼容 Windows 的 __dirname
@@ -20,14 +20,30 @@ const PKG_PATH = path.resolve(__dirname, '..', 'package.json');
 /**
  * 执行命令并输出日志
  */
-function run(cmd) {
+function run(cmd, options = {}) {
   console.log(`\n🐚 ${cmd}`);
   try {
-    execSync(cmd, { stdio: 'inherit', cwd: path.resolve(__dirname, '..') });
+    execSync(cmd, {
+      stdio: 'inherit',
+      cwd: path.resolve(__dirname, '..'),
+      ...options
+    });
     console.log(`✅ 成功`);
   } catch (error) {
     console.error(`❌ 失败: ${cmd}`);
     process.exit(1);
+  }
+}
+
+/**
+ * 检查是否有未暂存的变更
+ */
+function hasUnstagedChanges() {
+  try {
+    const status = execSync('git status --porcelain', { encoding: 'utf8' }).trim();
+    return status.length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -67,11 +83,29 @@ export async function releaseProject() {
     process.exit(1);
   }
 
-  // 4. Git 提交
-  run('git add package.json');
+  // 4. 检查是否有未暂存的变更
+  if (hasUnstagedChanges()) {
+    console.log('\n🔍 检测到未暂存的变更：');
+    run('git status --short');
+
+    const answer = await promptUser(
+      '是否将所有变更加入提交？[y/N] ',
+      (input) => ['y', 'yes', 'Y'].includes(input) || !input.trim()
+    );
+
+    if (!['y', 'yes', 'Y'].includes(answer)) {
+      console.log('👋 取消发布');
+      process.exit(0);
+    }
+
+    // ✅ 关键：添加所有变更
+    run('git add .');
+  }
+
+  // 5. 提交 package.json + 其他变更
   run(`git commit -m "release: v${nextVersion}"`);
 
-  // 5. 获取当前分支
+  // 6. 获取当前分支
   let branch;
   try {
     branch = execSync('git branch --show-current', { encoding: 'utf8' }).trim();
@@ -81,10 +115,10 @@ export async function releaseProject() {
     process.exit(1);
   }
 
-  // 6. 推送代码和标签
+  // 7. 推送代码
   run(`git push origin ${branch}`);
-  
-  // ✅ 安全打标签：如果标签已存在，先删除本地
+
+  // 8. 打标签（安全处理已存在标签）
   try {
     execSync(`git tag v${nextVersion}`, { stdio: 'ignore' });
     console.log(`✅ 标签 v${nextVersion} 创建成功`);
@@ -95,10 +129,34 @@ export async function releaseProject() {
     console.log(`✅ 标签 v${nextVersion} 已更新`);
   }
 
+  // 9. 推送标签
   run(`git push origin v${nextVersion}`);
 
-  // 7. 成功提示
+  // 10. 成功提示
   console.log('\n🎉 发布成功！');
   console.log(`🔗 https://github.com/see7788/create-7788-template/releases/tag/v${nextVersion}`);
   console.log('');
+}
+
+async function promptUser(question) {
+  const { createInterface } = await import('readline');
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  return new Promise((resolve) => {
+    rl.question(question, (input) => {
+      rl.close();
+      resolve(input.trim());
+    });
+  });
+}
+
+// ================================
+// ✅ 执行发布
+// ================================
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  releaseProject().catch(console.error);
 }
