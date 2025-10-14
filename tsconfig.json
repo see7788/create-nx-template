@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target":"esnext",
+    "useDefineForClassFields": true,
+    "module":"ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "declaration": true, // ✅ 生成类型声明文件
+    "declarationMap": true, // ✅ 生成类型声明映射文件
+    "emitDeclarationOnly": false, // ✅ 同时生成 JS 和类型声明
+    "declarationDir": "dist", // ✅ 类型声明输出目录
+    "rootDir": "src" ,// ✅ 源码根目录
+    "outDir": "dist",
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}

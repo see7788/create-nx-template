@@ -135,7 +135,7 @@ export async function releaseProject() {
 
   // 10. 成功提示
   console.log('\n🎉 发布成功！');
-  console.log(`🔗 https://github.com/see7788/create-7788-template/releases/tag/v${nextVersion}`);
+  console.log(`🔗 https://github.com/see7788/create-nx-template/releases/tag/v${nextVersion}`);
   console.log('');
 }
 
