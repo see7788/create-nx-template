@@ -3,6 +3,7 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import {fileURLToPath} from "url"
 
 // ================================
 // 🚀 极简 Git 发布脚本（修复路径 + 完整文件推送）
@@ -153,10 +154,6 @@ async function promptUser(question) {
   });
 }
 
-// ================================
-// ✅ 执行发布
-// ================================
-
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (path.resolve(fileURLToPath(import.meta.url))===path.resolve(process.argv[1])) {
   releaseProject().catch(console.error);
 }
