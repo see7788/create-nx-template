@@ -7,11 +7,12 @@ import { fileURLToPath } from "url"
 import degit from 'degit';
 
 const TEMPLATES = [
-  ['facebook/react', 'React 官方仓库'],
+  ['electron-template', '牛x的electron脚手架'],
   ['marchaos/jest-mock-extended', 'Jest Mock Extended'],
   ['vitejs/vite', 'Vite 仓库'],
   ['electron/electron-quick-start', 'Electron 快速启动模板'],
   ['nrwl/nx', 'Nx 工作区模板']
+  
 ];
 
 export async function createProject(projectName?: string) {
