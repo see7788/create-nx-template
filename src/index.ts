@@ -1,7 +1,7 @@
 import prompts from 'prompts';
-import createProject from './scripts/create-template';
-import releaseProject from './scripts/release';
-import distpkg from './scripts/dist-pkg';
+import createProject from './scripts/create-template.js';
+import releaseProject from './scripts/release.js';
+import distpkg from './scripts/dist-pkg.js';
 
 const args = process.argv.slice(2);
 

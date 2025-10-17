@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { PackageJson } from 'type-fest';
-import tool from "./tool"
+import tool from "./tool.js"
 // ================================
 // 🚀 极简 Git 发布脚本（TypeScript 版 + 完整错误处理）
 // ================================

@@ -1,12 +1,11 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { execSync } from 'node:child_process'
+import { writeFileSync, mkdirSync } from 'node:fs'
 import { build as esbuild } from 'esbuild'
 import { build as tsupbuild } from 'tsup';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from "fs"
-import tool from "./tool";
+import tool from "./tool.js";
 import prompts from 'prompts';
 
 /**
