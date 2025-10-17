@@ -4,18 +4,13 @@ import { execSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
+import type { PackageJson } from 'type-fest';
 // ================================
 // 🚀 极简 Git 发布脚本（TypeScript 版 + 完整错误处理）
 // ================================
 
 // ✅ 正确指向项目根目录的 package.json
 const PKG_PATH = path.resolve(process.cwd(), 'package.json');
-
-interface PackageJson {
-  version: string;
-  [key: string]: any;
-}
 
 /**
  * 执行命令并输出日志
@@ -106,7 +101,7 @@ function createOrUpdateTag(tagName: string): void {
 /**
  * 主发布函数
  */
-export async function releaseProject(): Promise<void> {
+export default async function releaseProject(): Promise<void> {
   // 1. 读取 package.json
   let pkg: PackageJson;
   try {
@@ -185,11 +180,53 @@ export async function releaseProject(): Promise<void> {
   run(`git push origin v${nextVersion}`);
 
   // 10. 成功提示
+  const repo = getGithubRepo();
+
   console.log('\n🎉 发布成功！');
-  console.log(`🔗 https://github.com/see7788/create-nx-template/releases/tag/v${nextVersion}`);
+
+  if (repo) {
+    const tagName = `v${nextVersion}`;
+    const releaseUrl = `https://github.com/${repo}/releases/tag/${tagName}`;
+    console.log(`🔗 发布地址: ${releaseUrl}`);
+  } else {
+    console.log(`🔗 无法自动确定发布地址，请检查 git remote。`);
+    console.log(`   默认格式: https://github.com/<owner>/<repo>/releases/tag/v${nextVersion}`);
+  }
   console.log('');
 }
+/**
+ * 从 git remote 中提取 GitHub 的 owner/repo
+ * 支持 ssh 和 https 格式
+ */
+function getGithubRepo(): string | null {
+  try {
+    let url = execSync('git remote get-url origin', {
+      encoding: 'utf8',
+      stdio: 'pipe'
+    }).trim();
 
+    // 处理 SSH 格式: git@github.com:owner/repo.git
+    if (url.startsWith('git@github.com:')) {
+      url = url.replace('git@github.com:', 'https://github.com/');
+    }
+
+    // 确保以 .git 结尾的去掉 .git
+    if (url.endsWith('.git')) {
+      url = url.slice(0, -4);
+    }
+
+    // 匹配 https://github.com/owner/repo
+    const match = url.match(/github\.com[/|:](.+)$/i);
+    if (match) {
+      return match[1]; // 返回 owner/repo
+    }
+
+    return null;
+  } catch (error) {
+    console.warn('⚠️  无法获取 git remote 信息');
+    return null;
+  }
+}
 /**
  * 异步提示用户输入
  */

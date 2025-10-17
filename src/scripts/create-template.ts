@@ -15,7 +15,7 @@ const TEMPLATES = [
   
 ];
 
-export async function createProject(projectName?: string) {
+export default async function createProject(projectName?: string) {
   // 如果通过命令行传参：pnpm create nx-template my-app
   if (projectName) {
     const targetDir = path.resolve(projectName);

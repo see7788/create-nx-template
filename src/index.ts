@@ -1,6 +1,6 @@
 // index.js
-import { createProject } from './scripts/create-template.js';
-import { releaseProject } from './scripts/release.js';
+import createProject from './scripts/create-template.js';
+import releaseProject from './scripts/release.js';
 console.log(`
 🔖 发布新版本:
   pnpm create nx-template -- --release

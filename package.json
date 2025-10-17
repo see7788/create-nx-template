@@ -1,6 +1,6 @@
 {
   "name": "create-nx-template",
-  "version": "1.2.28",
+  "version": "1.2.29",
   "description": "一个快速创建现代前端项目的模板生成工具，支持从多种流行框架和库的模板中选择（包括React、Vite、Electron、Nx工作区等），提供简单的交互式界面和命令行参数支持，帮助开发者快速初始化新项目或管理项目版本。",
   "main": "dist/index.js",
   "type": "module",
@@ -40,8 +40,10 @@
   "homepage": "https://github.com/see7788/create-nx-template",
   "devDependencies": {
     "@types/degit": "^2.8.6",
+    "@types/node": "20.17.17",
     "@types/prompts": "^2.4.9",
     "tsx": "^4.20.6",
+    "type-fest": "^5.1.0",
     "typescript": "5.8.3"
   }
 }
