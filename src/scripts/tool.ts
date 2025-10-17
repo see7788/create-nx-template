@@ -10,9 +10,7 @@ export default function tool() {
         if (fs.existsSync(pkgPath)) {
             const pkgContent = fs.readFileSync(pkgPath, 'utf-8');
             const pkgJson: PackageJson = JSON.parse(pkgContent)
-            const data = { pkgPath, pkgJson, cwdPath };
-            console.log(data);
-            return data
+            return { pkgPath, pkgJson, cwdPath }
         }
         dir = path.dirname(dir);
     }
