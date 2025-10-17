@@ -8,11 +8,7 @@ import degit from 'degit';
 
 const TEMPLATES = [
   ['electron-template', '牛x的electron脚手架'],
-  ['marchaos/jest-mock-extended', 'Jest Mock Extended'],
-  ['vitejs/vite', 'Vite 仓库'],
-  ['electron/electron-quick-start', 'Electron 快速启动模板'],
-  ['nrwl/nx', 'Nx 工作区模板']
-  
+  ['ts-template', 'typescript基本脚手架'],
 ];
 
 export default async function createProject(projectName?: string) {
