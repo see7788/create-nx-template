@@ -1,9 +1,10 @@
 import prompts from 'prompts';
-import createProject from './scripts/create-template.js';
-import releaseProject from './scripts/release.js';
-import distpkg from './scripts/dist-pkg.js';
+import { ProjectTemplateCreator } from './scripts/create-template.js';
+import { ReleaseManager } from './scripts/release.js';
+import { DistPackageBuilder } from './scripts/dist-pkg.js';
+import { Appexit } from './scripts/tool.js';
 
-/**命令行界面类 - 处理命令行参数和用户交互*/
+/**命令行界面类 - 编排层，负责组织和协调各个工具类的使用*/
 class CLI {
   /**命令行参数*/
   private readonly args: string[];
@@ -28,7 +29,7 @@ class CLI {
     process.exit(0);
   }
   
-  /**处理命令行参数*/
+  /**处理命令行参数 - 编排工具类的使用方式*/
   private async handleCommand(cmd: string, param: string): Promise<void> {
     switch (cmd) {
       case '--help':
@@ -39,21 +40,24 @@ class CLI {
       case 'create':
       case 'template':
       case 'init':
-        await createProject(param);
+        // 编排项目创建流程，使用工具类的create方法 - 延迟实例化
+        await new ProjectTemplateCreator().create(param);
         break;
       case 'release':
       case 'r':
-        await releaseProject();
+        // 编排版本发布流程，使用工具类的release方法 - 延迟实例化
+        await new ReleaseManager().release();
         break;
       case 'dist':
-        await distpkg();
+        // 编排分发包构建流程，使用工具类的build方法 - 延迟实例化
+        await new DistPackageBuilder().build();
         break;
       default:
         await this.showInteractiveMenu();
     }
   }
   
-  /**显示交互式菜单*/
+  /**显示交互式菜单 - 用户友好的操作选择界面*/
   private async showInteractiveMenu(): Promise<void> {
     const response = await prompts({
       type: 'select',
@@ -68,13 +72,13 @@ class CLI {
 
     switch (response.action) {
       case 'create':
-        await createProject();
+        await new ProjectTemplateCreator().create();
         break;
       case 'release':
-        await releaseProject();
+        await new ReleaseManager().release();
         break;
       case 'dist':
-        await distpkg();
+        await new DistPackageBuilder().build();
         break;
       default:
         console.log('取消');
@@ -82,18 +86,26 @@ class CLI {
     }
   }
   
-  /**执行主程序逻辑*/
+  /**执行主程序逻辑 - 入口编排的核心方法*/
   public async run(): Promise<void> {
     try {
       const [cmd, param] = this.args;
       await this.handleCommand(cmd, param);
-    } catch (err) {
-      console.error('❌ 程序异常:', err);
+    } catch (err: any) {
+      // 统一错误处理
+      if (err instanceof Appexit) {
+        console.error(`❌ 程序错误: ${err.message}`);
+      } else if (err.message === 'user-cancelled') {
+        console.log('👋 操作已取消');
+        return;
+      } else {
+        console.error('❌ 程序异常:', err.message || err);
+      }
       process.exit(1);
     }
   }
 }
 
-/**创建CLI实例并运行*/
+/**创建CLI实例并运行 - 应用程序入口点*/
 const cli = new CLI();
 cli.run();

@@ -4,18 +4,28 @@ import { build as esbuild, BuildResult } from 'esbuild'
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from "fs"
-import { ProjectTool } from "./tool.js";
+import { ProjectTool, Appexit } from "./tool.js";
 
 /**分发包构建器类 - 采用流畅异步执行模式*/
 class DistPackageBuilder {
   // 项目基本信息
+  /**当前工作目录 - 存储项目的根目录路径，用于解析所有文件路径 */
   private readonly cwdPath: string;
+  
+  /**包配置对象 - 存储项目的package.json内容，用于读取项目信息和依赖项 */
   private readonly pkgJson: any;
   
   // 构建相关路径
+  /**入口文件名 - 存储项目入口文件的名称，用于识别构建入口 */
   private entryName = '';
+  
+  /**入口文件路径 - 存储项目入口文件的完整绝对路径，作为esbuild的构建起点 */
   private entryFilePath = '';
+  
+  /**构建输出目录 - 存储分发包的输出目录路径，所有构建产物都将放在这里 */
   private readonly distPath: string;
+  
+  /**分发包package.json路径 - 存储生成的分发包配置文件路径，用于输出精简的package.json */
   private readonly distPackagePath: string;
   
   /**构造函数 - 初始化构建器*/
@@ -27,27 +37,48 @@ class DistPackageBuilder {
     this.distPackagePath = path.join(this.distPath, 'package.json');
   }
   
-  /**执行完整的构建流程 - 流畅的异步执行流程*/
+  /**执行完整的构建流程 - 编排所有步骤的执行顺序*/
   public async build(): Promise<void> {
     try {
-      // 连续的异步调用，专注于正常流程
-      await this.findEntryFilePath();
-      const buildResult = await this.buildJsFile();
-      await this.generateTypeDeclarations();
-      const { usedDeps, usedDevDeps } = this.extractUsedDependencies(buildResult);
-      this.writeDistPackageJson(usedDeps, usedDevDeps);
+      // 编排业务流程的执行顺序
+      await this.executeBuildWorkflow();
       
       console.log('\n🎉 分发包构建完成！');
       console.log(`📦 输出目录: ${this.distPath}`);
     } catch (error: any) {
       // 统一的错误处理
+      // 用户取消不是错误，而是正常退出流程
       if (error.message === 'user-cancelled') {
         console.log('\n👋 构建已取消');
         return;
       }
+      // 重新抛出Appexit错误，确保错误能够正确传播到顶层处理
+      if (error instanceof Appexit) {
+        throw error;
+      }
+      // 对于非Appexit错误，记录日志后再抛出
       console.error(`\n❌ 构建失败: ${error.message}`);
       throw error;
     }
+  }
+
+  /**执行构建工作流 - 编排各个业务步骤的具体执行*/
+  private async executeBuildWorkflow(): Promise<void> {
+    // 连续的异步调用，专注于正常流程
+    console.log("查找项目入口文件 - 自动识别或交互式选择")
+    await this.findEntryFilePath();
+    console.log("构建JavaScript文件 - 使用esbuild进行快速转译")
+    const buildResult = await this.buildJsFile();
+    console.log("生成TypeScript类型声明文件")
+    await this.generateTypeDeclarations();
+    console.log("提取使用的依赖项 - 优化package.json")
+    const { usedDeps, usedDevDeps } = this.extractUsedDependencies(buildResult);
+    console.log("生成分发包package.json文件")
+    this.writeDistPackageJson(usedDeps, usedDevDeps);
+    
+    // 初始化git仓库（如果尚未初始化）
+    console.log("初始化Git仓库（如果需要）")
+    await this.initializeGitRepository();
   }
   
   /**查找项目入口文件 - 异步模式，使用异常处理错误情况*/
@@ -82,12 +113,15 @@ class DistPackageBuilder {
       });
       
       if (!response.entry) {
-        throw new Error('user-cancelled');
+        // 用户取消不是错误，而是通过消息标记正常退出
+        const error = new Error('user-cancelled');
+        throw error;
       }
       
       this.entryName = response.entry;
     } else {
-      throw new Error('未找到有效的入口文件');
+      // 未找到有效的入口文件是致命错误
+      throw new Appexit('未找到有效的入口文件');
     }
     
     this.entryFilePath = path.join(this.cwdPath, this.entryName);
@@ -172,6 +206,36 @@ class DistPackageBuilder {
     return { usedDeps, usedDevDeps };
   }
   
+  /**初始化Git仓库 - 如果dist目录中尚未初始化git仓库，则自动创建*/
+  private async initializeGitRepository(): Promise<void> {
+    try {
+      // 检查dist目录中是否已有.git文件夹
+      const gitDirPath = path.join(this.distPath, '.git');
+      
+      if (!fs.existsSync(gitDirPath)) {
+        console.log('\n🔄 初始化Git仓库...');
+        const { execSync } = await import('child_process');
+        
+        // 执行git init命令
+        execSync('git init', { cwd: this.distPath, stdio: 'inherit' });
+        
+        // 创建.gitignore文件
+        const gitignoreContent = `# Logs\nlogs\n*.log\nnpm-debug.log*\nyarn-debug.log*\nyarn-error.log*\npnpm-debug.log*\nlerna-debug.log*\n\nnode_modules\ndist\ndist-ssr\n*.local\n\n# Editor directories and files\n.vscode/*\n!.vscode/extensions.json\n.idea\n.DS_Store\n*.suo\n*.ntvs*\n*.njsproj\n*.sln\n*.sw?\n`;
+        
+        writeFileSync(path.join(this.distPath, '.gitignore'), gitignoreContent);
+        
+        // 添加初始提交
+        execSync('git add .', { cwd: this.distPath, stdio: 'inherit' });
+        execSync('git commit -m "Initial commit"', { cwd: this.distPath, stdio: 'inherit' });
+        
+        console.log('✅ Git仓库初始化完成');
+      }
+    } catch (error: any) {
+      console.warn('⚠️ Git仓库初始化失败:', error.message);
+      // 即使git初始化失败，也不中断整个构建流程
+    }
+  }
+  
   /**生成并写入分发package.json - 精简实现*/
   private writeDistPackageJson(usedDeps: Record<string, string>, usedDevDeps: Record<string, string>): void {
       const distPkg: Record<string, any> = {
@@ -208,16 +272,20 @@ class DistPackageBuilder {
   }
 }
 
-/**分发包构建的入口函数 - 保持简洁接口*/
-export default async function distpkg(): Promise<void> {
-  const builder = new DistPackageBuilder();
-  await builder.build();
-}
+/**导分发包构建器类 - 供外部直接使用*/
+export { DistPackageBuilder };
 
 /**直接运行脚本时执行 - 优雅的错误处理*/
 if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])) {
-  distpkg().catch((error) => {
-    console.error('❌ 构建过程中出现错误:', error.message);
+  const builder = new DistPackageBuilder();
+  builder.build().catch((error) => {
+    if (error instanceof Appexit) {
+      console.error(`❌ 程序错误: ${error.message}`);
+    } else if (error.message === 'user-cancelled') {
+      console.log('👋 构建已取消');
+    } else {
+      console.error('❌ 构建过程中出现错误:', error.message);
+    }
     // 不使用process.exit，让Node.js自然退出
   });
 }
