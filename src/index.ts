@@ -3,7 +3,8 @@ import { ProjectTemplateCreator } from './scripts/create-template.js';
 import { ReleaseManager } from './scripts/release.js';
 import { DistPackageBuilder } from './scripts/dist-pkg.js';
 import { Appexit } from './scripts/tool.js';
-import pkg from "../package.json"
+import pkg from '../package.json' with { type: 'json' };
+
 /**命令行界面类 - 编排层，负责组织和协调各个工具类的使用*/
 class CLI {
   /**命令行参数*/
@@ -12,7 +13,7 @@ class CLI {
   /**构造函数 - 初始化命令行参数*/
   constructor() {
     this.args = process.argv.slice(2);
-    console.log("pkg.version:",pkg.version)
+    console.log("pkg.version:", pkg.version);
   }
   
   /**显示帮助信息*/
