@@ -295,9 +295,16 @@ class ReleaseManager {
 
   /**提交版本变更并创建标签 - 合并两个相关操作*/
   private async commitAndTagVersion(): Promise<void> {
-    // 1. 提交版本变更
-    this.runInteractiveCommand(`git add ${this.pkgPath}`);
-    this.runInteractiveCommand(`git commit -m "chore: release ${this.nextVersion}"`);
+    // 1. 检查package.json是否有未提交的更改
+    const statusResult = this.runGitCommand(`status --porcelain ${this.pkgPath}`, { encoding: 'utf8' }, false);
+    
+    // 只有当文件有更改时才提交
+    if (statusResult?.trim()) {
+      this.runInteractiveCommand(`git add ${this.pkgPath}`);
+      this.runInteractiveCommand(`git commit -m "chore: release ${this.nextVersion}"`);
+    } else {
+      console.log(`ℹ️  package.json 已经是最新状态，跳过提交`);
+    }
     
     // 2. 创建Git标签
     const tagName = `v${this.nextVersion}`;
