@@ -28,7 +28,6 @@ export class ProjectTool {
   /**查找package.json文件并返回项目信息*/
   public getProjectInfo(): { pkgPath: string; pkgJson: PackageJson; cwdPath: string } {
     let dir = this.cwdPath;
-    
     while (dir !== path.parse(dir).root) {
       const pkgPath = path.join(dir, 'package.json');
       if (fs.existsSync(pkgPath)) {
@@ -36,7 +35,6 @@ export class ProjectTool {
         const pkgJson: PackageJson = JSON.parse(pkgContent);
         return { pkgPath, pkgJson, cwdPath: this.cwdPath };
       }
-      
       dir = path.dirname(dir);
     }
     // 找不到package.json文件是致命错误

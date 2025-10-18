@@ -11,23 +11,23 @@ class DistPackageBuilder {
   // 项目基本信息
   /**当前工作目录 - 存储项目的根目录路径，用于解析所有文件路径 */
   private readonly cwdPath: string;
-  
+
   /**包配置对象 - 存储项目的package.json内容，用于读取项目信息和依赖项 */
   private readonly pkgJson: any;
-  
+
   // 构建相关路径
   /**入口文件名 - 存储项目入口文件的名称，用于识别构建入口 */
   private entryName = '';
-  
+
   /**入口文件路径 - 存储项目入口文件的完整绝对路径，作为esbuild的构建起点 */
   private entryFilePath = '';
-  
+
   /**构建输出目录 - 存储分发包的输出目录路径，所有构建产物都将放在这里 */
   private readonly distPath: string;
-  
+
   /**分发包package.json路径 - 存储生成的分发包配置文件路径，用于输出精简的package.json */
   private readonly distPackagePath: string;
-  
+
   /**构造函数 - 初始化构建器*/
   constructor() {
     const projectInfo = new ProjectTool().getProjectInfo();
@@ -36,13 +36,13 @@ class DistPackageBuilder {
     this.distPath = path.join(this.cwdPath, "dist");
     this.distPackagePath = path.join(this.distPath, 'package.json');
   }
-  
+
   /**执行完整的构建流程 - 编排所有步骤的执行顺序*/
   public async build(): Promise<void> {
     try {
       // 编排业务流程的执行顺序
       await this.executeBuildWorkflow();
-      
+
       console.log('\n🎉 分发包构建完成！');
       console.log(`📦 输出目录: ${this.distPath}`);
     } catch (error: any) {
@@ -75,22 +75,20 @@ class DistPackageBuilder {
     const { usedDeps, usedDevDeps } = this.extractUsedDependencies(buildResult);
     console.log("生成分发包package.json文件")
     this.writeDistPackageJson(usedDeps, usedDevDeps);
-    
+
     // 初始化git仓库（如果尚未初始化）
     console.log("初始化Git仓库（如果需要）")
     await this.initializeGitRepository();
   }
-  
+
   /**查找项目入口文件 - 异步模式，使用异常处理错误情况*/
   private async findEntryFilePath(): Promise<void> {
-    const entryOptions = [
+    const availableFiles = [
       'index.ts',
       'index.tsx',
       'index.js',
       'index.jsx',
-    ];
-    
-    const availableFiles = entryOptions
+    ]
       .map(file => ({ file, fullPath: path.join(this.cwdPath, file) }))
       .filter(({ fullPath }) => fs.existsSync(fullPath));
 
@@ -100,7 +98,7 @@ class DistPackageBuilder {
     } else if (availableFiles.length > 1) {
       // 动态导入prompts以避免不必要的依赖
       const prompts = (await import('prompts')).default;
-      
+
       const response = await prompts({
         type: 'select',
         name: 'entry',
@@ -111,28 +109,28 @@ class DistPackageBuilder {
           description: fullPath,
         })),
       });
-      
+
       if (!response.entry) {
         // 用户取消不是错误，而是通过消息标记正常退出
         const error = new Error('user-cancelled');
         throw error;
       }
-      
+
       this.entryName = response.entry;
     } else {
       // 未找到有效的入口文件是致命错误
       throw new Appexit('未找到有效的入口文件');
     }
-    
+
     this.entryFilePath = path.join(this.cwdPath, this.entryName);
-    console.log(`🔍 找到入口文件: ${this.entryName}`);
+    console.log(`🔍 找到入口文件: ${this.entryFilePath}`);
   }
-  
+
   /**构建JS文件 - 简化实现，专注于构建过程*/
   private async buildJsFile(): Promise<BuildResult> {
     // 创建输出目录
     mkdirSync(this.distPath, { recursive: true });
-    
+
     // 构建JS文件并输出到dist目录
     const result = await esbuild({
       entryPoints: [this.entryFilePath],
@@ -142,20 +140,19 @@ class DistPackageBuilder {
       outfile: path.join(this.distPath, 'index.js'),
       metafile: true,
       write: true,
-      external: ['node:*'],
-      // 启用生成类型声明文件
-      tsconfig: path.join(this.cwdPath, 'tsconfig.json')
+      external: ['node:*']
+      // 移除tsconfig配置，改为在generateTypeDeclarations方法中处理类型声明
     });
-    
+
     console.log('✅ JS文件构建完成');
     return result;
   }
-  
+
   /**生成TypeScript类型声明文件*/
   private async generateTypeDeclarations(): Promise<void> {
     if (this.entryFilePath.endsWith('.ts') || this.entryFilePath.endsWith('.tsx')) {
       console.log('📝 处理TypeScript项目，需要生成类型声明文件');
-      
+
       // 使用TypeScript编译器生成类型声明文件
       try {
         const { execSync } = await import('child_process');
@@ -167,34 +164,34 @@ class DistPackageBuilder {
       }
     }
   }
-  
+
   /**分析并提取使用的依赖项 - 健壮的错误处理和依赖分析*/
   private extractUsedDependencies(result: BuildResult): { usedDeps: Record<string, string>, usedDevDeps: Record<string, string> } {
     const imported = new Set<string>();
-    
+
     // 安全地检查metafile
     if (!result.metafile || !result.metafile.inputs) {
       console.warn('⚠️ 无法分析依赖关系：缺少metafile信息');
       return { usedDeps: {}, usedDevDeps: {} };
     }
-    
+
     // 遍历所有输入文件提取依赖
     for (const key in result.metafile.inputs) {
       const segs = key.match(/node_modules[/\\](?:\.pnpm[/\\])?(?:@[^/\\]+[/\\][^/\\]+|[^/\\]+)/g);
       if (!segs) continue;
-      
+
       for (const seg of segs) {
         const name = seg.includes('@')
           ? seg.split(/[/\\]/).slice(-2).join('/')
           : seg.split(/[/\\]/).pop();
-        
+
         imported.add(name as any);
       }
     }
 
     const usedDeps: Record<string, string> = {};
     const usedDevDeps: Record<string, string> = {};
-    
+
     for (const name of imported) {
       if (this.pkgJson.dependencies?.[name]) {
         usedDeps[name as any] = this.pkgJson.dependencies[name];
@@ -202,32 +199,32 @@ class DistPackageBuilder {
         usedDevDeps[name as any] = this.pkgJson.devDependencies[name];
       }
     }
-    
+
     return { usedDeps, usedDevDeps };
   }
-  
+
   /**初始化Git仓库 - 如果dist目录中尚未初始化git仓库，则自动创建*/
   private async initializeGitRepository(): Promise<void> {
     try {
       // 检查dist目录中是否已有.git文件夹
       const gitDirPath = path.join(this.distPath, '.git');
-      
+
       if (!fs.existsSync(gitDirPath)) {
         console.log('\n🔄 初始化Git仓库...');
         const { execSync } = await import('child_process');
-        
+
         // 执行git init命令
         execSync('git init', { cwd: this.distPath, stdio: 'inherit' });
-        
+
         // 创建.gitignore文件
         const gitignoreContent = `# Logs\nlogs\n*.log\nnpm-debug.log*\nyarn-debug.log*\nyarn-error.log*\npnpm-debug.log*\nlerna-debug.log*\n\nnode_modules\ndist\ndist-ssr\n*.local\n\n# Editor directories and files\n.vscode/*\n!.vscode/extensions.json\n.idea\n.DS_Store\n*.suo\n*.ntvs*\n*.njsproj\n*.sln\n*.sw?\n`;
-        
+
         writeFileSync(path.join(this.distPath, '.gitignore'), gitignoreContent);
-        
+
         // 添加初始提交
         execSync('git add .', { cwd: this.distPath, stdio: 'inherit' });
         execSync('git commit -m "Initial commit"', { cwd: this.distPath, stdio: 'inherit' });
-        
+
         console.log('✅ Git仓库初始化完成');
       }
     } catch (error: any) {
@@ -235,38 +232,38 @@ class DistPackageBuilder {
       // 即使git初始化失败，也不中断整个构建流程
     }
   }
-  
+
   /**生成并写入分发package.json - 精简实现*/
   private writeDistPackageJson(usedDeps: Record<string, string>, usedDevDeps: Record<string, string>): void {
-      const distPkg: Record<string, any> = {
-        name: this.pkgJson.name,
-        version: this.pkgJson.version,
-        description: this.pkgJson.description,
-        keywords: this.pkgJson.keywords,
-        author: this.pkgJson.author,
-        license: this.pkgJson.license,
-        repository: this.pkgJson.repository,
-        main: 'index.js',
-        module: 'index.js',
-        types: 'index.d.ts',
-        exports: {
-          '.': {
-            types: './index.d.ts',
-            import: './index.js',
-            require: './index.js',
-          },
+    const distPkg: Record<string, any> = {
+      name: this.pkgJson.name,
+      version: this.pkgJson.version,
+      description: this.pkgJson.description,
+      keywords: this.pkgJson.keywords,
+      author: this.pkgJson.author,
+      license: this.pkgJson.license,
+      repository: this.pkgJson.repository,
+      main: 'index.js',
+      module: 'index.js',
+      types: 'index.d.ts',
+      exports: {
+        '.': {
+          types: './index.d.ts',
+          import: './index.js',
+          require: './index.js',
         },
-        dependencies: usedDeps,
-        devDependencies: usedDevDeps,
-      };
-      
-      // 清理undefined值
-      Object.keys(distPkg).forEach(key => {
-        if (distPkg[key] === undefined) {
-          delete distPkg[key];
-        }
-      });
-    
+      },
+      dependencies: usedDeps,
+      devDependencies: usedDevDeps,
+    };
+
+    // 清理undefined值
+    Object.keys(distPkg).forEach(key => {
+      if (distPkg[key] === undefined) {
+        delete distPkg[key];
+      }
+    });
+
     writeFileSync(this.distPackagePath, JSON.stringify(distPkg, null, 2));
     console.log('✅ package.json已生成');
   }
