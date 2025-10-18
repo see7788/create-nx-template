@@ -1,139 +1,223 @@
 #!/usr/bin/env node
 import { writeFileSync, mkdirSync } from 'node:fs'
-import { build as esbuild } from 'esbuild'
-import { build as tsupbuild } from 'tsup';
+import { build as esbuild, BuildResult } from 'esbuild'
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from "fs"
-import tool from "./tool.js";
-import prompts from 'prompts';
+import { ProjectTool } from "./tool.js";
 
-/**
- * 查找项目入口文件
- */
-async function findEntryFilePath(cwdPath: string) {
-  const entryOptions = [
-    'index.ts',
-    'index.tsx',
-    'index.js',
-    'index.jsx',
-  ]
-  const availableFiles = entryOptions
-    .map(file => ({ file, fullPath: path.join(cwdPath, file) }))
-    .filter(({ fullPath }) => fs.existsSync(fullPath));
-
-  // 如果只有一个，直接用，不提问
-  if (availableFiles.length === 1) {
-    return availableFiles[0].file;
+/**分发包构建器类 - 采用流畅异步执行模式*/
+class DistPackageBuilder {
+  // 项目基本信息
+  private readonly cwdPath: string;
+  private readonly pkgJson: any;
+  
+  // 构建相关路径
+  private entryName = '';
+  private entryFilePath = '';
+  private readonly distPath: string;
+  private readonly distPackagePath: string;
+  
+  /**构造函数 - 初始化构建器*/
+  constructor() {
+    const projectInfo = new ProjectTool().getProjectInfo();
+    this.pkgJson = projectInfo.pkgJson;
+    this.cwdPath = projectInfo.cwdPath;
+    this.distPath = path.join(this.cwdPath, "dist");
+    this.distPackagePath = path.join(this.distPath, 'package.json');
   }
-
-  // 如果有多个，让用户选
-  if (availableFiles.length > 1) {
-    const response = await prompts({
-      type: 'select',
-      name: 'entry',
-      message: '请选择入口文件',
-      choices: availableFiles.map(({ file, fullPath }) => ({
-        title: file,           // 显示相对路径
-        value: file,
-        description: fullPath, // 鼠标悬停或下拉时显示完整路径
-      })),
-    });
-    return response.entry;
+  
+  /**执行完整的构建流程 - 流畅的异步执行流程*/
+  public async build(): Promise<void> {
+    try {
+      // 连续的异步调用，专注于正常流程
+      await this.findEntryFilePath();
+      const buildResult = await this.buildJsFile();
+      await this.generateTypeDeclarations();
+      const { usedDeps, usedDevDeps } = this.extractUsedDependencies(buildResult);
+      this.writeDistPackageJson(usedDeps, usedDevDeps);
+      
+      console.log('\n🎉 分发包构建完成！');
+      console.log(`📦 输出目录: ${this.distPath}`);
+    } catch (error: any) {
+      // 统一的错误处理
+      if (error.message === 'user-cancelled') {
+        console.log('\n👋 构建已取消');
+        return;
+      }
+      console.error(`\n❌ 构建失败: ${error.message}`);
+      throw error;
+    }
   }
+  
+  /**查找项目入口文件 - 异步模式，使用异常处理错误情况*/
+  private async findEntryFilePath(): Promise<void> {
+    const entryOptions = [
+      'index.ts',
+      'index.tsx',
+      'index.js',
+      'index.jsx',
+    ];
+    
+    const availableFiles = entryOptions
+      .map(file => ({ file, fullPath: path.join(this.cwdPath, file) }))
+      .filter(({ fullPath }) => fs.existsSync(fullPath));
 
-  // 一个都没有
-  throw new Error('entryFilePath undefind error');
-}
-export default async function distpkg() {
-  try {
-    const { pkgJson, cwdPath } = tool()
-    const entryName = await findEntryFilePath(cwdPath)
-    const entryFilePath = path.join(cwdPath, entryName)
-    const distPath = path.join(cwdPath, "dist")
-    const distPackagepath=path.join(distPath, 'package.json')
-    mkdirSync(distPath, { recursive: true })
-    await tsupbuild({
-      entry: [entryFilePath],
-      format: ['esm'],
-      target: 'node18',
-      outDir: distPath,
-      dts: true,
-      clean: true,
-      sourcemap: true,
-      external: ['node:*'],
-    });
+    // 处理不同情况
+    if (availableFiles.length === 1) {
+      this.entryName = availableFiles[0].file;
+    } else if (availableFiles.length > 1) {
+      // 动态导入prompts以避免不必要的依赖
+      const prompts = (await import('prompts')).default;
+      
+      const response = await prompts({
+        type: 'select',
+        name: 'entry',
+        message: '请选择入口文件',
+        choices: availableFiles.map(({ file, fullPath }) => ({
+          title: file,
+          value: file,
+          description: fullPath,
+        })),
+      });
+      
+      if (!response.entry) {
+        throw new Error('user-cancelled');
+      }
+      
+      this.entryName = response.entry;
+    } else {
+      throw new Error('未找到有效的入口文件');
+    }
+    
+    this.entryFilePath = path.join(this.cwdPath, this.entryName);
+    console.log(`🔍 找到入口文件: ${this.entryName}`);
+  }
+  
+  /**构建JS文件 - 简化实现，专注于构建过程*/
+  private async buildJsFile(): Promise<BuildResult> {
+    // 创建输出目录
+    mkdirSync(this.distPath, { recursive: true });
+    
+    // 构建JS文件并输出到dist目录
     const result = await esbuild({
-      entryPoints: [entryFilePath],
+      entryPoints: [this.entryFilePath],
       bundle: true,
       platform: 'node',
       target: 'node18',
+      outfile: path.join(this.distPath, 'index.js'),
       metafile: true,
-      write: false,
+      write: true,
       external: ['node:*'],
-    })
-    const imported = new Set<string>()
+      // 启用生成类型声明文件
+      tsconfig: path.join(this.cwdPath, 'tsconfig.json')
+    });
+    
+    console.log('✅ JS文件构建完成');
+    return result;
+  }
+  
+  /**生成TypeScript类型声明文件*/
+  private async generateTypeDeclarations(): Promise<void> {
+    if (this.entryFilePath.endsWith('.ts') || this.entryFilePath.endsWith('.tsx')) {
+      console.log('📝 处理TypeScript项目，需要生成类型声明文件');
+      
+      // 使用TypeScript编译器生成类型声明文件
+      try {
+        const { execSync } = await import('child_process');
+        execSync(`npx tsc ${this.entryFilePath} --emitDeclarationOnly --outDir ${this.distPath}`, { stdio: 'inherit' });
+        console.log('✅ TypeScript类型声明文件生成完成');
+      } catch (error: any) {
+        console.warn('⚠️ 类型声明文件生成失败:', error.message);
+        // 即使类型声明生成失败，也继续执行后续步骤
+      }
+    }
+  }
+  
+  /**分析并提取使用的依赖项 - 健壮的错误处理和依赖分析*/
+  private extractUsedDependencies(result: BuildResult): { usedDeps: Record<string, string>, usedDevDeps: Record<string, string> } {
+    const imported = new Set<string>();
+    
+    // 安全地检查metafile
+    if (!result.metafile || !result.metafile.inputs) {
+      console.warn('⚠️ 无法分析依赖关系：缺少metafile信息');
+      return { usedDeps: {}, usedDevDeps: {} };
+    }
+    
+    // 遍历所有输入文件提取依赖
     for (const key in result.metafile.inputs) {
-      const segs = key.match(/node_modules[/\\](?:\.pnpm[/\\])?(?:@[^/\\]+[/\\][^/\\]+|[^/\\]+)/g)
-      if (!segs) continue
+      const segs = key.match(/node_modules[/\\](?:\.pnpm[/\\])?(?:@[^/\\]+[/\\][^/\\]+|[^/\\]+)/g);
+      if (!segs) continue;
+      
       for (const seg of segs) {
         const name = seg.includes('@')
           ? seg.split(/[/\\]/).slice(-2).join('/')
-          : seg.split(/[/\\]/).pop()
-        imported.add(name as any)
-        console.log(name)
+          : seg.split(/[/\\]/).pop();
+        
+        imported.add(name as any);
       }
     }
 
-    const usedDeps: Record<string, string> = {}
-    const usedDevDeps: Record<string, string> = {}
+    const usedDeps: Record<string, string> = {};
+    const usedDevDeps: Record<string, string> = {};
+    
     for (const name of imported) {
-      if (pkgJson.dependencies?.[name]) {
-        usedDeps[name as any] = pkgJson.dependencies[name]
-      } else if (pkgJson.devDependencies?.[name]) {
-        usedDevDeps[name as any] = pkgJson.devDependencies[name]
+      if (this.pkgJson.dependencies?.[name]) {
+        usedDeps[name as any] = this.pkgJson.dependencies[name];
+      } else if (this.pkgJson.devDependencies?.[name]) {
+        usedDevDeps[name as any] = this.pkgJson.devDependencies[name];
       }
     }
-    console.log('used deps:', usedDeps)
-    console.log('used dev deps:', usedDevDeps)
-
-    const distPkg = {
-      name: pkgJson.name,
-      version: pkgJson.version,
-      description: pkgJson.description,
-      keywords: pkgJson.keywords,
-      author: pkgJson.author,
-      license: pkgJson.license,
-      repository: pkgJson.repository,
-      main: './index.js',
-      module: './index.js',
-      types: './index.d.ts',
-      exports: {
-        '.': {
-          types: './index.d.ts',
-          import: './index.js',
-          require: './index.js',
+    
+    return { usedDeps, usedDevDeps };
+  }
+  
+  /**生成并写入分发package.json - 精简实现*/
+  private writeDistPackageJson(usedDeps: Record<string, string>, usedDevDeps: Record<string, string>): void {
+      const distPkg: Record<string, any> = {
+        name: this.pkgJson.name,
+        version: this.pkgJson.version,
+        description: this.pkgJson.description,
+        keywords: this.pkgJson.keywords,
+        author: this.pkgJson.author,
+        license: this.pkgJson.license,
+        repository: this.pkgJson.repository,
+        main: 'index.js',
+        module: 'index.js',
+        types: 'index.d.ts',
+        exports: {
+          '.': {
+            types: './index.d.ts',
+            import: './index.js',
+            require: './index.js',
+          },
         },
-      },
-      dependencies: usedDeps,
-      devDependencies: usedDevDeps,
-    }
-    writeFileSync(distPackagepath, JSON.stringify(distPkg, null, 2))
-    console.log('done')
-  } catch (error: any) {
-    console.error(error)
+        dependencies: usedDeps,
+        devDependencies: usedDevDeps,
+      };
+      
+      // 清理undefined值
+      Object.keys(distPkg).forEach(key => {
+        if (distPkg[key] === undefined) {
+          delete distPkg[key];
+        }
+      });
+    
+    writeFileSync(this.distPackagePath, JSON.stringify(distPkg, null, 2));
+    console.log('✅ package.json已生成');
   }
 }
 
+/**分发包构建的入口函数 - 保持简洁接口*/
+export default async function distpkg(): Promise<void> {
+  const builder = new DistPackageBuilder();
+  await builder.build();
+}
 
-
-// ✅ 检查是否直接执行此脚本
+/**直接运行脚本时执行 - 优雅的错误处理*/
 if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])) {
-  distpkg().catch((error: any) => {
-    console.error('❌ 发布过程中发生错误:', error.message);
-    if (error.stack) {
-      console.error('详细错误信息:', error.stack);
-    }
-    process.exit(1);
+  distpkg().catch((error) => {
+    console.error('❌ 构建过程中出现错误:', error.message);
+    // 不使用process.exit，让Node.js自然退出
   });
 }

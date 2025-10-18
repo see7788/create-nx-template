@@ -1,169 +1,191 @@
-// scripts/create-template.js
+// scripts/create-template.ts
 import fs from 'fs/promises';
 import path from 'path';
-import { execSync } from 'child_process';
 import prompts from 'prompts';
-import { fileURLToPath } from "url"
+import { fileURLToPath } from 'url';
 import degit from 'degit';
 
-const TEMPLATES = [
-  ['electron-template', '牛x的electron脚手架'],
-  ['ts-template', 'typescript基本脚手架'],
-];
+/**项目模板创建器类 - 采用流畅异步模式，专注于正常流程执行*/
+class ProjectTemplateCreator {
+  // 常量配置
+  private readonly templateRepoPrefix = 'see7788';
+  private readonly templates: [string, string][] = [
+    ['electron-template', '牛x的electron脚手架'],
+    ['ts-template', 'typescript基本脚手架'],
+  ];
+  
+  // 状态属性
+  private selectedTemplateRepo = '';
+  private validProjectName = '';
+  private targetDir = '';
 
-export default async function createProject(projectName?: string) {
-  // 如果通过命令行传参：pnpm create nx-template my-app
-  if (projectName) {
-    const targetDir = path.resolve(projectName);
-
-    // 检查名字是否合法
-    if (projectName.includes('/')) {
-      return console.error('❌ 项目名不能包含 /');
-    }
-    if (!/^[a-zA-Z0-9-_]+$/.test(projectName)) {
-      return console.error('❌ 项目名只能包含字母、数字、- 和 _');
-    }
-
-    // 检查目录是否存在
+  /**执行项目创建的主流程 - 流畅的异步执行模式*/
+  async create(initialProjectName?: string): Promise<void> {
     try {
-      await fs.access(targetDir);
-      return console.error(`❌ 目录已存在: ${projectName}`);
-    } catch {
-      // 不存在，继续
+      // 采用连续的异步调用，专注于正常流程
+      await this.selectTemplate();
+      await this.getValidProjectName(initialProjectName || undefined);
+      await this.createFromTemplate();
+    } catch (error: any) {
+      // 统一的错误处理，区分用户取消和实际错误
+      if (error.message === 'user-cancelled') {
+        console.log('👋 操作已取消');
+        return; // 正常退出，不使用process.exit
+      }
+      console.error('❌ 错误:', error.message);
+      await this.cleanupFailedDirectory();
     }
-
-    // 直接开始创建（不进入交互循环）
-    return await createFromTemplate(projectName, targetDir);
   }
 
-  // 交互式创建：允许循环输入
-  while (true) {
-    const result = await prompts({
-      type: 'text',
-      name: 'name',
-      message: '请输入项目名',
-      initial: 'my-app'
+  /**选择项目模板 - 使用异常而非布尔返回值表示取消*/
+  private async selectTemplate(): Promise<void> {
+    const response = await prompts({
+      type: 'select',
+      name: 'repo',
+      message: '选择模板',
+      choices: this.templates.map(([value, title]) => ({ title, value }))
     });
 
-    projectName = result.name?.trim();
+    // 用户取消时抛出特定异常
+    if (!response.repo) {
+      throw new Error('user-cancelled');
+    }
 
-    if (!projectName) {
-      console.log('👋 取消创建');
-      return;
+    this.selectedTemplateRepo = response.repo;
+  }
+
+  /**获取并验证项目名称 - 循环直到获取有效名称或用户取消，确保类型安全*/
+  private async getValidProjectName(initialProjectName?: string): Promise<void> {
+    let projectName: string | undefined = initialProjectName;
+
+    while (true) {
+      // 交互式获取项目名
+      if (!projectName) {
+        const response = await prompts({
+          type: 'text',
+          name: 'name',
+          message: '请输入项目名',
+          initial: 'my-app'
+        });
+
+        if (!response.name) {
+          throw new Error('user-cancelled');
+        }
+
+        projectName = response.name.trim();
+      }
+
+      // 验证项目名
+      try {
+        // 确保projectName是有效的string类型
+        if (typeof projectName !== 'string') {
+          throw new Error('无效的项目名称类型');
+        }
+        
+        await this.validateProjectName(projectName);
+        this.validProjectName = projectName;
+        this.targetDir = path.resolve(this.validProjectName);
+        return; // 验证成功，直接返回
+      } catch (error: any) {
+        // 显示错误并准备重新输入
+        console.error(`❌ ${error.message}`);
+        projectName = undefined;
+      }
+    }
+  }
+  
+  /**验证项目名称 - 确保接收有效的string类型，验证失败时抛出具体错误*/
+  private async validateProjectName(projectName: string): Promise<void> {
+    // 确保参数是有效的字符串类型
+    if (typeof projectName !== 'string' || !projectName || projectName.trim() === '') {
+      throw new Error('项目名不能为空或不是有效字符串');
     }
 
     if (projectName.includes('/')) {
-      console.error('❌ 项目名不能包含 /，请重新输入');
-      continue;
+      throw new Error('项目名不能包含 /');
     }
 
     if (!/^[a-zA-Z0-9-_]+$/.test(projectName)) {
-      console.error('❌ 项目名只能包含字母、数字、- 和 _，请重新输入');
-      continue;
+      throw new Error('项目名只能包含字母、数字、- 和 _');
     }
 
+    // 检查目录是否已存在
     const targetDir = path.resolve(projectName);
-
     try {
       await fs.access(targetDir);
-      console.error(`❌ 目录已存在: ${projectName}，请换一个名字`);
-      continue; // ✅ 真正回到开头，重新输入
-    } catch {
-      // 目录不存在，跳出循环，开始创建
-      return await createFromTemplate(projectName, targetDir);
+      throw new Error(`目录已存在: ${projectName}`);
+    } catch (error: any) {
+      // 目录不存在是预期的正常情况
+      if (error.code !== 'ENOENT') {
+        throw error; // 重新抛出其他类型的错误
+      }
     }
   }
-}
 
-// 单独封装创建逻辑
-async function createFromTemplate(projectName: string = "", targetDir: string = "") {
-  // 选择模板
-  const { repo } = await prompts({
-    type: 'select',
-    name: 'repo',
-    message: '选择模板',
-    choices: TEMPLATES.map(([value, title]) => ({ title, value }))
-  });
+  /**从模板创建项目 - 流畅的执行流程*/
+  private async createFromTemplate(): Promise<void> {
+    const repoUrl = `${this.templateRepoPrefix}/${this.selectedTemplateRepo}`;
 
-  if (!repo) return console.log('👋 取消创建');
+    console.log(`\n🚀 创建项目: ${this.validProjectName}`);
+    console.log(`📦 使用 degit 从 ${repoUrl} 获取模板...\n`);
 
-  console.log(`\n🚀 创建项目: ${projectName}`);
-  console.log(`📦 使用 degit 从 github:${repo} 获取模板...\n`);
-
-  try {
-    // 检查 degit 是否已安装
-    checkDependency('degit');
-
-    // 使用 degit 克隆仓库（自动移除 .git 目录）
-    const emitter = degit(`github:${repo}`, {
+    // 创建degit实例并监听事件
+    const emitter = degit(repoUrl, {
       cache: false,
       force: true,
       verbose: true
     });
 
-    // 处理 degit 事件
-    emitter.on('info', (info) => {
-      console.log(`📝 ${info.message}`);
-    });
+    emitter.on('info', (info) => console.log(`📝 ${info.message}`));
+    emitter.on('warn', (warn) => console.warn(`⚠️ ${warn.message}`));
 
-    emitter.on('warn', (warn) => {
-      console.warn(`⚠️ ${warn.message}`);
-    });
-
-    await emitter.clone(targetDir);
+    // 执行克隆
+    await emitter.clone(this.targetDir);
     console.log('🧹 已自动移除 .git 目录（degit 特性）');
 
-    // 更新 package.json name
-    const pkgPath = path.join(targetDir, 'package.json');
+    // 更新package.json
+    await this.updatePackageJsonName();
+    console.log('\n✅ 项目创建成功！');
+  }
+
+  /**更新package.json中的name字段 - 简化实现*/
+  private async updatePackageJsonName(): Promise<void> {
     try {
+      const pkgPath = path.join(this.targetDir, 'package.json');
       const pkgContent = await fs.readFile(pkgPath, 'utf-8');
       const pkg = JSON.parse(pkgContent);
-      pkg.name = projectName;
+      pkg.name = this.validProjectName;
       await fs.writeFile(pkgPath, JSON.stringify(pkg, null, 2), 'utf-8');
-      console.log(`✏️  package.json name 已更新为: ${projectName}`);
+      console.log(`✏️  package.json name 已更新为: ${this.validProjectName}`);
     } catch (err: any) {
       console.warn('⚠️ 未找到或无法更新 package.json:', err.message);
     }
-
-    // 安装依赖
-    const pm = detectPackageManager();
-    console.log(`\n📦 使用 ${pm} 安装依赖...\n`);
-    execSync(`${pm} install`, { cwd: targetDir, stdio: 'inherit' });
-    console.log('\n✅ 项目创建成功！');
-    console.log('');
-  } catch (error: any) {
-    console.error('❌ 创建失败:', error.message);
-    try {
-      await fs.rm(targetDir, { recursive: true, force: true });
-      console.log(`🗑️ 已清理失败目录: ${projectName}`);
-    } catch { }
   }
-}
 
-function detectPackageManager() {
-  try {
-    execSync('pnpm --version', { stdio: 'ignore' });
-    return 'pnpm';
-  } catch {
+  /**清理失败的项目目录 - 仅在有目标目录时执行*/
+  private async cleanupFailedDirectory(): Promise<void> {
+    if (!this.targetDir || !this.validProjectName) {
+      return;
+    }
+
     try {
-      execSync('yarn --version', { stdio: 'ignore' });
-      return 'yarn';
+      await fs.rm(this.targetDir, { recursive: true, force: true });
+      console.log(`🗑️ 已清理失败目录: ${this.validProjectName}`);
     } catch {
-      return 'npm';
+      // 忽略清理失败
     }
   }
 }
 
-// 检查依赖是否安装
-function checkDependency(depName: string) {
-  try {
-    require.resolve(depName);
-  } catch (e) {
-    console.error(`❌ 依赖 ${depName} 未安装，请运行 npm install -g ${depName} 安装后重试`);
-    process.exit(1);
-  }
+/**项目创建的入口函数 - 保持简洁的接口*/
+export default async function createProject(projectName?: string): Promise<void> {
+  const creator = new ProjectTemplateCreator();
+  await creator.create(projectName);
 }
 
+/**直接运行脚本时执行 - 添加Promise处理*/
 if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])) {
-  createProject().catch(console.error);
+  createProject().catch((error) => {
+    console.error('❌ 程序执行失败:', error.message);
+  });
 }
