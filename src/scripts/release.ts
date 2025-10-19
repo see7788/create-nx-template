@@ -26,7 +26,7 @@ export class ReleaseManager extends LibBase {
     // 自动处理Git状态检查和推送
     console.log('📤 2. 推送代码和标签到远程仓库');
     await this.checkAndPushGitChanges();
-    console.log('\n🚀 完成版本发布流程')
+    console.log(`\n🚀 完成版本发布流程 - 版本: ${this.nextVersion}`)
     // GitHub Release将由GitHub Actions自动创建（见.github/workflows/publish.yml）
   }
 
