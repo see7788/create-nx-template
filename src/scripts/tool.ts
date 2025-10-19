@@ -26,6 +26,7 @@ export class LibBase {
     
     /**获取当前工作目录的项目信息 - 递归查找package.json*/
     private getcwdProjectInfo(): { pkgPath: string; pkgJson: PackageJson; cwdPath: string } {
+        // 保存初始工作目录，确保后续操作始终使用同一个路径
         const cwdPath = process.cwd();
         let dir = cwdPath;
         while (dir !== path.parse(dir).root) {

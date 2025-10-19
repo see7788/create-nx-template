@@ -9,13 +9,12 @@ import prompts from 'prompts';
 
 class DistPackageBuilder extends LibBase {
   private entryName = '';
+  private entryFilePath = '';
 
   /**产物目录名称 */
   private distDirName: string = "dist";
 
-  private get entryFilePath(): string {
-    return path.join(this.cwdProjectInfo.cwdPath, this.entryName);
-  }
+
 
 
   private get distPath(): string {
@@ -90,6 +89,7 @@ class DistPackageBuilder extends LibBase {
     // 找到单个标准入口文件，直接使用
     if (availableFiles.length === 1) {
       this.entryName = availableFiles[0].file;
+      this.entryFilePath = availableFiles[0].fullPath;
     } else {
       const currentDirFiles = fs.readdirSync(this.cwdProjectInfo.cwdPath, { withFileTypes: true })
         .filter(dirent => dirent.isFile() && /\.(js|jsx|ts|tsx)$/i.test(dirent.name))
@@ -120,6 +120,7 @@ class DistPackageBuilder extends LibBase {
       }
 
       this.entryName = response.entry;
+      this.entryFilePath = path.join(this.cwdProjectInfo.cwdPath, response.entry);
     }
 
     // 最后验证选中的入口文件确实存在（防止竞态条件）
