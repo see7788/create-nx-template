@@ -246,160 +246,58 @@ class DistPackageBuilder extends LibBase {
   }
     
   /**
-   * 使用tsc直接生成类型定义文件
-   * 采用更成熟的方法，确保生成高质量的类型定义
+   * 简化的类型定义生成方法
+   * 直接使用tsc命令生成类型定义，失败时给出明确错误并提供简单兜底
    */
   private async generateTypeDefinition(): Promise<void> {
     try {
-      // 首先尝试使用TypeScript编译器直接生成类型定义
       console.log(`📄 正在使用tsc从 ${this.entryFilePath} 生成类型定义...`);
       
-      // 使用子进程运行tsc命令
-      const { execSync } = await import('child_process');
-      const tsConfigPath = path.join(this.cwdProjectInfo.cwdPath, 'tsconfig.json');
-      
-      // 构建tsc命令，添加更多配置选项以解决常见的导入错误
-        let tscCommand = `tsc --declaration --emitDeclarationOnly --outDir ${this.distPath} --skipLibCheck --esModuleInterop --allowSyntheticDefaultImports --noImplicitAny --target es2020 --moduleResolution node`;
-      
-      // 如果存在tsconfig.json，则使用它
-      if (fs.existsSync(tsConfigPath)) {
-        tscCommand += ` --project ${tsConfigPath}`;
-      }
-      
-      // 添加源文件路径
-      tscCommand += ` ${this.entryFilePath}`;
+      // 构建tsc命令
+      const tscCommand = `tsc --declaration --emitDeclarationOnly --outDir ${this.distPath} ${this.entryFilePath} --esModuleInterop --allowSyntheticDefaultImports --target es2020 --moduleResolution node --noImplicitAny`;
       
       // 执行tsc命令
+      const { execSync } = await import('child_process');
       execSync(tscCommand, { stdio: 'inherit' });
       
-      // 检查是否生成了类型定义文件
-      const generatedDtsPath = path.join(this.distPath, path.basename(this.entryFilePath).replace(/\.(ts|tsx)$/, '.d.ts'));
-      
-      if (fs.existsSync(generatedDtsPath)) {
-        // 读取生成的类型定义内容
-        const dtsContent = fs.readFileSync(generatedDtsPath, 'utf8');
-        
-        // 如果生成的文件名不是index.d.ts，重命名它
-        const indexDtsPath = path.join(this.distPath, 'index.d.ts');
-        if (generatedDtsPath !== indexDtsPath) {
-          writeFileSync(indexDtsPath, dtsContent);
-          // 可选：删除原文件
-          if (fs.existsSync(generatedDtsPath)) {
-            fs.unlinkSync(generatedDtsPath);
-          }
-        }
-        
-        console.log('✅ 使用tsc成功生成高质量类型定义文件(.d.ts)');
-        console.log(`📊 类型定义内容长度: ${dtsContent.length} 字符`);
-        // 输出前几行内容作为预览
-        const preview = dtsContent.split('\n').slice(0, 5).join('\n');
-        console.log(`📋 类型定义预览:\n${preview}...`);
-        return;
-      }
-      
-      throw new Error('tsc未生成类型定义文件');
-    } catch (error: any) {
-      console.warn('⚠️ tsc生成类型定义失败:', error.message);
-      
-      // 回退到使用TypeScript API的方法
-      try {
-        console.log('ℹ️ 尝试使用TypeScript API生成类型定义');
-        await this.generateTypeDefinitionWithApi();
-      } catch (secondaryError) {
-        console.warn('⚠️ TypeScript API生成类型失败，使用源文件分析');
-        this.generateTypeFromSource();
-      }
-    }
-  }
-  
-  /**
-   * 使用TypeScript官方API作为备用方案生成类型定义
-   */
-  private async generateTypeDefinitionWithApi(): Promise<void> {
-    const ts = await import('typescript');
-    
-    // 获取或创建tsconfig配置
-    const tsConfigPath = path.join(this.cwdProjectInfo.cwdPath, 'tsconfig.json');
-    let compilerOptions: any = {
-      declaration: true,
-      emitDeclarationOnly: true,
-      skipLibCheck: true,
-      esModuleInterop: true,
-      target: ts.ScriptTarget.ES2020,
-      module: ts.ModuleKind.ESNext,
-      moduleResolution: ts.ModuleResolutionKind.NodeNext,
-      allowSyntheticDefaultImports: true,
-      strict: true,
-      outDir: this.distPath,
-      rootDir: path.dirname(this.entryFilePath)
-    };
-    
-    // 如果存在tsconfig.json，则尝试读取它
-    if (fs.existsSync(tsConfigPath)) {
-      try {
-        const tsConfigContent = JSON.parse(fs.readFileSync(tsConfigPath, 'utf8'));
-        if (tsConfigContent.compilerOptions) {
-          compilerOptions = {
-            ...tsConfigContent.compilerOptions,
-            declaration: true,
-            emitDeclarationOnly: true,
-            outDir: this.distPath,
-            rootDir: path.dirname(this.entryFilePath)
-          };
-        }
-      } catch (e) {
-        console.warn('⚠️ 无法读取tsconfig.json，使用默认配置');
-      }
-    }
-    
-    // 创建编译程序
-    const program = ts.createProgram([this.entryFilePath], compilerOptions);
-    
-    // 直接编译，不指定特定源文件（让TypeScript自动处理依赖）
-     const emitResult = program.emit();
-    
-    // 检查是否有错误
-    const allDiagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics);
-    const errors = allDiagnostics.filter(diagnostic => 
-      diagnostic.category === ts.DiagnosticCategory.Error
-    );
-    
-    if (errors.length > 0) {
-      throw new Error(`TypeScript API编译错误: ${errors.length}个错误`);
-    }
-    
-    // 确保生成了index.d.ts文件
-    const indexDtsPath = path.join(this.distPath, 'index.d.ts');
-    if (!fs.existsSync(indexDtsPath)) {
-      // 如果没有生成index.d.ts，尝试查找其他.d.ts文件并复制
+      // 检查是否生成了.d.ts文件
       const dtsFiles = fs.readdirSync(this.distPath).filter(file => file.endsWith('.d.ts'));
+      
       if (dtsFiles.length > 0) {
+        // 重命名第一个生成的.d.ts文件为index.d.ts
         const firstDtsFile = dtsFiles[0];
-        const dtsContent = fs.readFileSync(path.join(this.distPath, firstDtsFile), 'utf8');
-        writeFileSync(indexDtsPath, dtsContent);
-        console.log(`✅ 已将${firstDtsFile}复制为index.d.ts`);
+        const oldPath = path.join(this.distPath, firstDtsFile);
+        const newPath = path.join(this.distPath, 'index.d.ts');
+        
+        if (firstDtsFile !== 'index.d.ts') {
+          fs.renameSync(oldPath, newPath);
+          console.log(`✅ 已将${firstDtsFile}复制为index.d.ts`);
+        } else {
+          console.log('✅ tsc已成功生成index.d.ts文件');
+        }
       } else {
-        throw new Error('TypeScript API未生成任何.d.ts文件');
+        console.log('❌ tsc生成类型定义失败: 未生成任何.d.ts文件');
+        // 仅在失败时创建最基本的类型定义文件
+        this.createSimpleTypeDefinition();
       }
-    } else {
-      console.log('✅ 使用TypeScript API成功生成类型定义文件');
+    } catch (error: any) {
+      console.error('❌ 类型定义生成失败:', error.message);
+      // 创建简单类型定义作为最终兜底
+      this.createSimpleTypeDefinition();
     }
   }
   
   /**
-   * 直接从源文件分析导出内容并生成类型定义
-   * 作为TypeScript API失败时的中间回退方案
+   * 创建简单的类型定义文件
+   * 只作为tsc命令失败时的简单兜底
    */
-  private generateTypeFromSource(): void {
+  private createSimpleTypeDefinition(): void {
     try {
-      console.log(`📝 正在分析源文件: ${this.entryFilePath}`);
       const sourceContent = fs.readFileSync(this.entryFilePath, 'utf8');
-      
-      // 检查是否有默认导出
       const hasDefaultExport = /export\s+default\s+/.test(sourceContent);
-      
-      // 检查是否有命名导出
       const namedExports = [];
+      
+      // 简单提取命名导出
       const exportDeclarations = sourceContent.match(/export\s+(?:const|let|var|function|class|interface|type|enum)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g) || [];
       for (const decl of exportDeclarations) {
         const match = decl.match(/export\s+(?:const|let|var|function|class|interface|type|enum)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/);
@@ -408,22 +306,14 @@ class DistPackageBuilder extends LibBase {
         }
       }
       
-      // 检查是否有导出声明
-      const exportFromDeclarations = sourceContent.match(/export\s+(?:\*|(?:\{[^}]*\}))\s+from\s+['"][^'"]+['"]/g) || [];
-      
-      console.log(`📊 源文件分析结果:`);
-      console.log(`- 默认导出: ${hasDefaultExport ? '是' : '否'}`);
-      console.log(`- 命名导出: ${namedExports.length} 个`);
-      console.log(`- 重导出声明: ${exportFromDeclarations.length} 个`);
-      
-      // 生成更详细的类型定义
+      // 生成简单类型定义
       let dtsContent = `/**
- * ${this.distDirName} - 基于源代码分析生成的类型定义
+ * ${this.distDirName} - 基本类型定义
  */
 
 declare module '${this.distDirName}' {\n`;
       
-      // 添加命名导出的类型声明
+      // 添加命名导出
       for (const name of namedExports) {
         dtsContent += `  export const ${name}: any;\n`;
       }
@@ -438,16 +328,17 @@ declare module '${this.distDirName}' {\n`;
       // 写入类型定义文件
       const dtsFilePath = path.join(this.distPath, 'index.d.ts');
       writeFileSync(dtsFilePath, dtsContent);
-      console.log('✅ 基于源文件分析生成类型定义成功');
+      console.log('⚠️ 已创建基本类型定义作为替代方案');
     } catch (error: any) {
-      console.error('❌ 源文件分析生成类型失败:', error.message);
-      throw error;
+      console.error('❌ 创建基本类型定义失败:', error.message);
+      // 最后兜底：使用最基本的类型定义
+      this.createFallbackTypeDefinition();
     }
   }
   
   /**
-   * 创建标准的回退类型定义文件
-   * 确保类型定义符合CommonJS和ES模块规范
+   * 创建最基本的回退类型定义文件
+   * 仅在所有其他方法都失败时使用
    */
   private createFallbackTypeDefinition(): void {
     const fallbackDts = `/**
