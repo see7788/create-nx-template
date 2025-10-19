@@ -170,8 +170,7 @@ class DistPackageBuilder extends LibBase {
       console.log(`[DEBUG] tsup构建成功完成`);
     } catch (error: any) {
       // 捕获tsup构建错误并添加来源标识
-      console.error(`[DEBUG] 构建错误来源: ${error.stack?.includes('tsup') ? 'tsup工具' : '我们的代码'}`);
-      throw error; // 重新抛出错误让上层处理
+     throw new Appexit(`[DEBUG] 构建错误来源: ${error.stack?.includes('tsup') ? 'tsup工具' : '我们的代码'}`);
     }
 
     // 手动读取生成的文件来检查
