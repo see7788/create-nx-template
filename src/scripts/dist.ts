@@ -258,8 +258,8 @@ class DistPackageBuilder extends LibBase {
       const { execSync } = await import('child_process');
       const tsConfigPath = path.join(this.cwdProjectInfo.cwdPath, 'tsconfig.json');
       
-      // 构建tsc命令
-      let tscCommand = `tsc --declaration --emitDeclarationOnly --outDir ${this.distPath} --skipLibCheck`;
+      // 构建tsc命令，添加更多配置选项以解决常见的导入错误
+        let tscCommand = `tsc --declaration --emitDeclarationOnly --outDir ${this.distPath} --skipLibCheck --esModuleInterop --allowSyntheticDefaultImports --noImplicitAny --target es2020 --moduleResolution node`;
       
       // 如果存在tsconfig.json，则使用它
       if (fs.existsSync(tsConfigPath)) {
