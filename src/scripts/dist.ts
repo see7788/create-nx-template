@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import fs from "fs"
 import { LibBase, Appexit } from "./tool.js";
 import { build as tsupBuild } from 'tsup';
+import prompts from 'prompts';
 
 class DistPackageBuilder extends LibBase {
   private entryName = '';
@@ -27,7 +28,6 @@ class DistPackageBuilder extends LibBase {
 
   /**询问用户设置输出目录名称 */
   private async askForDistName(): Promise<void> {
-    const prompts = (await import('prompts')).default;
 
     // 直接提供带默认值的输入框供用户编辑
     const response = await prompts({
@@ -76,6 +76,8 @@ class DistPackageBuilder extends LibBase {
 
   /**查找项目入口文件 - 异步模式，使用异常处理错误情况*/
   private async findEntryFilePath(): Promise<void> {
+
+    // 按优先顺序查找标准入口文件
     const availableFiles = [
       'index.ts',
       'index.tsx',
@@ -85,24 +87,46 @@ class DistPackageBuilder extends LibBase {
       .map(file => ({ file, fullPath: path.join(this.cwdProjectInfo.cwdPath, file) }))
       .filter(({ fullPath }) => fs.existsSync(fullPath));
 
-    // 处理不同情况
+    // 找到单个标准入口文件，直接使用
     if (availableFiles.length === 1) {
       this.entryName = availableFiles[0].file;
-    } else if (availableFiles.length > 1) {
-      // 动态导入prompts以避免不必要的依赖
-      const prompts = (await import('prompts')).default;
-
-      const response = await prompts({
-        type: 'select',
-        name: 'entry',
-        message: '请选择入口文件',
-        choices: availableFiles.map(({ file, fullPath }) => ({
+    } else {
+      // 需要用户选择的情况
+      let choices = [];
+      let message = '请选择入口文件';
+      
+      // 如果有多个标准入口文件，直接使用它们
+      if (availableFiles.length > 0) {
+        choices = availableFiles.map(({ file, fullPath }) => ({
           title: file,
           value: file,
           description: fullPath,
-        })),
-      });
+        }));
+      } else {
+        // 没有标准入口文件，查找所有 JavaScript/TypeScript 文件
+        const currentDirFiles = fs.readdirSync(this.cwdProjectInfo.cwdPath, { withFileTypes: true })
+          .filter(dirent => dirent.isFile() && /\.(js|jsx|ts|tsx)$/i.test(dirent.name))
+          .map(dirent => dirent.name)
+          .sort();
 
+        if (currentDirFiles.length === 0) {
+          throw new Appexit('当前目录下没有找到任何 JavaScript 或 TypeScript 文件');
+        }
+
+        choices = currentDirFiles.map(file => ({
+          title: file,
+          value: file,
+          description: path.join(this.cwdProjectInfo.cwdPath, file),
+        }));
+      }
+      // 显示交互式选择菜单，让用户从准备好的文件列表中选择入口文件
+      const response = await prompts({
+        type: 'select',
+        name: 'entry',
+        message,
+        choices,
+      });
+      // 处理用户取消选择的情况 - 抛出特殊错误以标记正常退出
       if (!response.entry) {
         // 用户取消不是错误，而是通过消息标记正常退出
         const error = new Error('user-cancelled');
@@ -110,11 +134,12 @@ class DistPackageBuilder extends LibBase {
       }
 
       this.entryName = response.entry;
-    } else {
-      // 未找到有效的入口文件是致命错误
-      throw new Appexit('未找到有效的入口文件');
     }
 
+    // 最后验证选中的入口文件确实存在（防止竞态条件）
+    if (!fs.existsSync(this.entryFilePath)) {
+      throw new Appexit(`入口文件不存在: ${this.entryFilePath}`);
+    }
     console.log(`🔍 找到入口文件: ${this.entryFilePath}`);
   }
 
@@ -221,7 +246,7 @@ class DistPackageBuilder extends LibBase {
     writeFileSync(path.join(this.distPath, "package.json"), JSON.stringify(distPkg, null, 2));
     console.log('✅ package.json已生成');
   }
-    
+
 
 }
 
