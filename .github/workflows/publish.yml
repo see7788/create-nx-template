@@ -1,4 +1,4 @@
-name: 发布到 npm
+name: 发布到 npm 和 GitHub Release
 
 on:
   push:
@@ -11,6 +11,8 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整历史以生成变更日志
 
       - name: 设置 Node.js
         uses: actions/setup-node@v4
@@ -23,3 +25,15 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ github.ref_name }}
+          body: |
+            自动创建的 Release
+            版本: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
