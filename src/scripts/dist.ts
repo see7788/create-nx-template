@@ -29,22 +29,26 @@ class DistPackageBuilder extends LibBase {
   private async askForDistName(): Promise<void> {
     const prompts = (await import('prompts')).default;
 
-    // 询问用户是否更改默认dist名称
+    // 询问用户是否更改默认dist名称，使用select类型提供选项
     const response = await prompts({
-      type: 'confirm',
-      name: 'changeDist',
-      message: '是否要更改默认的输出目录名称（默认为"dist"）?',
-      initial: false
+      type: 'select',
+      name: 'action',
+      message: '请选择输出目录名称操作',
+      choices: [
+        { title: '使用默认目录名称 (dist)', value: 'default' },
+        { title: '自定义目录名称', value: 'custom' }
+      ],
+      initial: 0
     });
 
     // 用户取消操作
-    if (response.changeDist === undefined) {
+    if (response.action === undefined) {
       const error = new Error('user-cancelled');
       throw error;
     }
 
-    // 如果用户选择更改，询问新的目录名称
-    if (response.changeDist) {
+    // 如果用户选择自定义目录名称
+    if (response.action === 'custom') {
       const nameResponse = await prompts({
         type: 'text',
         name: 'distName',
@@ -69,6 +73,7 @@ class DistPackageBuilder extends LibBase {
       this.distDirName = nameResponse.distName.trim();
       console.log(`📁 输出目录已设置为: ${this.distPath}`);
     } else {
+      // 使用默认目录名称
       console.log(`📁 使用默认输出目录: ${this.distPath}`);
     }
   }
@@ -265,7 +270,9 @@ class DistPackageBuilder extends LibBase {
         module: ts.ModuleKind.ESNext,
         moduleResolution: ts.ModuleResolutionKind.NodeNext,
         allowSyntheticDefaultImports: true,
-        strict: true
+        strict: true,
+        outDir: this.distPath, // 设置输出目录
+        rootDir: path.dirname(this.entryFilePath) // 设置根目录
       };
       
       // 如果存在tsconfig.json，则尝试读取它
@@ -277,7 +284,9 @@ class DistPackageBuilder extends LibBase {
             compilerOptions = {
               ...tsConfigContent.compilerOptions,
               declaration: true,
-              emitDeclarationOnly: true
+              emitDeclarationOnly: true,
+              outDir: this.distPath,
+              rootDir: path.dirname(this.entryFilePath)
             };
           }
         } catch (e) {
@@ -285,19 +294,23 @@ class DistPackageBuilder extends LibBase {
         }
       }
       
-      // 为单文件生成类型定义
-      const tempDir = path.join(this.distPath, '.temp-types');
-      mkdirSync(tempDir, { recursive: true });
+      // 为了更可靠地生成类型定义，直接使用emit到文件系统的方式
+      console.log(`📄 正在从 ${this.entryFilePath} 生成类型定义...`);
       
-      // 创建编译程序主机
+      // 创建编译程序主机 - 使用更可靠的方式
       const compilerHost = ts.createCompilerHost(compilerOptions);
       
-      // 重写写入文件方法，以便我们可以自定义输出处理
+      // 重写写入文件方法，捕获内容并输出详细信息
       let generatedDtsContent: string | null = null;
       
       compilerHost.writeFile = (fileName: string, content: string) => {
+        console.log(`📝 生成类型文件: ${fileName}`);
         if (fileName.endsWith('.d.ts')) {
           generatedDtsContent = content;
+          // 直接写入到dist目录下的index.d.ts
+          const dtsFilePath = path.join(this.distPath, 'index.d.ts');
+          writeFileSync(dtsFilePath, content);
+          console.log(`✅ 类型定义已写入: ${dtsFilePath}`);
         }
       };
       
@@ -308,40 +321,56 @@ class DistPackageBuilder extends LibBase {
       // 检查编译错误
       const allDiagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics);
       
+      // 输出所有诊断信息（包括警告和错误）以便调试
       if (allDiagnostics.length > 0) {
-        const errors = allDiagnostics
-          .filter(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error)
+        const diagnosticsInfo = allDiagnostics
           .map(diagnostic => {
             const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+            const category = diagnostic.category === ts.DiagnosticCategory.Error ? '错误' : 
+                            diagnostic.category === ts.DiagnosticCategory.Warning ? '警告' : '提示';
             if (diagnostic.file && diagnostic.start !== undefined) {
               const { line, character } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
-              return `${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`;
+              return `[${category}] ${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`;
             }
-            return message;
-          });
+            return `[${category}] ${message}`;
+          })
+          .join('\n');
+        
+        console.log('🔍 TypeScript诊断信息:\n', diagnosticsInfo);
+        
+        // 只有错误才会导致失败
+        const errors = allDiagnostics.filter(diagnostic => 
+          diagnostic.category === ts.DiagnosticCategory.Error
+        );
         
         if (errors.length > 0) {
-          throw new Error(`TypeScript编译错误:\n${errors.join('\n')}`);
+          throw new Error(`TypeScript编译错误:\n${errors.length}个错误`);
         }
       }
       
-      // 如果成功生成了类型定义内容
+      // 验证是否成功生成了类型定义
       if (generatedDtsContent) {
-        // 确保类型定义正确指向我们的包
-        const dtsFilePath = path.join(this.distPath, 'index.d.ts');
-        writeFileSync(dtsFilePath, generatedDtsContent);
         console.log('✅ 使用TypeScript官方API生成类型定义文件(.d.ts)成功');
+        console.log(`📊 类型定义内容长度: ${(generatedDtsContent as string).length} 字符`);
+        // 输出前几行内容作为预览
+        const preview = (generatedDtsContent as string).split('\n').slice(0, 5).join('\n');
+        console.log(`📋 类型定义预览:\n${preview}...`);
       } else {
         throw new Error('未能通过TypeScript API生成类型定义内容');
       }
     } catch (error: any) {
       console.warn('⚠️ TypeScript官方API生成类型定义失败:', error.message);
       
-      // 直接使用回退方案生成类型定义
-      console.log('ℹ️ 使用标准回退方案生成类型定义');
-      this.createFallbackTypeDefinition();
+      // 尝试使用更直接的方法分析源文件并生成类型
+      try {
+        console.log('ℹ️ 尝试使用源文件分析方式生成类型定义');
+        this.generateTypeFromSource();
+      } catch (secondaryError) {
+        console.warn('⚠️ 源文件分析生成类型失败，使用回退方案');
+        this.createFallbackTypeDefinition();
+      }
     } finally {
-      // 清理临时目录
+      // 清理可能的临时文件
       try {
         const tempDir = path.join(this.distPath, '.temp-types');
         if (fs.existsSync(tempDir)) {
@@ -350,6 +379,65 @@ class DistPackageBuilder extends LibBase {
       } catch (cleanupError) {
         console.warn('⚠️ 清理临时文件时出错:', cleanupError);
       }
+    }
+  }
+  
+  /**
+   * 直接从源文件分析导出内容并生成类型定义
+   * 作为TypeScript API失败时的中间回退方案
+   */
+  private generateTypeFromSource(): void {
+    try {
+      console.log(`📝 正在分析源文件: ${this.entryFilePath}`);
+      const sourceContent = fs.readFileSync(this.entryFilePath, 'utf8');
+      
+      // 检查是否有默认导出
+      const hasDefaultExport = /export\s+default\s+/.test(sourceContent);
+      
+      // 检查是否有命名导出
+      const namedExports = [];
+      const exportDeclarations = sourceContent.match(/export\s+(?:const|let|var|function|class|interface|type|enum)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g) || [];
+      for (const decl of exportDeclarations) {
+        const match = decl.match(/export\s+(?:const|let|var|function|class|interface|type|enum)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/);
+        if (match && match[1]) {
+          namedExports.push(match[1]);
+        }
+      }
+      
+      // 检查是否有导出声明
+      const exportFromDeclarations = sourceContent.match(/export\s+(?:\*|(?:\{[^}]*\}))\s+from\s+['"][^'"]+['"]/g) || [];
+      
+      console.log(`📊 源文件分析结果:`);
+      console.log(`- 默认导出: ${hasDefaultExport ? '是' : '否'}`);
+      console.log(`- 命名导出: ${namedExports.length} 个`);
+      console.log(`- 重导出声明: ${exportFromDeclarations.length} 个`);
+      
+      // 生成更详细的类型定义
+      let dtsContent = `/**
+ * ${this.distDirName} - 基于源代码分析生成的类型定义
+ */
+
+declare module '${this.distDirName}' {\n`;
+      
+      // 添加命名导出的类型声明
+      for (const name of namedExports) {
+        dtsContent += `  export const ${name}: any;\n`;
+      }
+      
+      // 添加默认导出
+      if (hasDefaultExport) {
+        dtsContent += `  export default any;\n`;
+      }
+      
+      dtsContent += `}\n`;
+      
+      // 写入类型定义文件
+      const dtsFilePath = path.join(this.distPath, 'index.d.ts');
+      writeFileSync(dtsFilePath, dtsContent);
+      console.log('✅ 基于源文件分析生成类型定义成功');
+    } catch (error: any) {
+      console.error('❌ 源文件分析生成类型失败:', error.message);
+      throw error;
     }
   }
   
