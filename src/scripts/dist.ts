@@ -133,6 +133,11 @@ class DistPackageBuilder extends LibBase {
   private async buildJsFile(): Promise<{ metafile: any }> {
     // 创建输出目录
     mkdirSync(this.distPath, { recursive: true });
+    
+    // 再次验证入口文件存在性，防止竞态条件或路径解析问题
+    if (!fs.existsSync(this.entryFilePath)) {
+      throw new Appexit(`构建时无法找到入口文件: ${this.entryFilePath}。请确保文件路径正确且文件存在。`);
+    }
 
     // 构建配置 - 使用tsup简化构建流程
     const buildOptions: Options = {
