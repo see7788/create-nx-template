@@ -76,6 +76,7 @@ class DistPackageBuilder extends LibBase {
 
   /**查找项目入口文件 - 异步模式，使用异常处理错误情况*/
   private async findEntryFilePath(): Promise<void> {
+    console.log(`[DEBUG] 当前工作目录: ${this.cwdProjectInfo.cwdPath}`);
 
     // 按优先顺序查找标准入口文件
     const availableFiles = [
@@ -84,7 +85,14 @@ class DistPackageBuilder extends LibBase {
       'index.js',
       'index.jsx',
     ]
-      .filter(file => fs.existsSync(path.join(this.cwdProjectInfo.cwdPath, file)));
+      .filter(file => {
+        const fullPath = path.join(this.cwdProjectInfo.cwdPath, file);
+        const exists = fs.existsSync(fullPath);
+        console.log(`[DEBUG] 检查标准入口文件: ${fullPath}, 存在: ${exists}`);
+        return exists;
+      });
+
+    console.log(`[DEBUG] 找到的标准入口文件: ${JSON.stringify(availableFiles)}`);
 
     // 找到单个标准入口文件，直接使用
     if (availableFiles.length === 1) {
@@ -94,6 +102,8 @@ class DistPackageBuilder extends LibBase {
         .filter(dirent => dirent.isFile() && /\.(js|jsx|ts|tsx)$/i.test(dirent.name))
         .map(dirent => dirent.name)
         .sort();
+
+      console.log(`[DEBUG] 当前目录下的JS/TS文件: ${JSON.stringify(currentDirFiles)}`);
 
       if (currentDirFiles.length === 0) {
         throw new Appexit('当前目录下没有找到任何 JavaScript 或 TypeScript 文件');
@@ -121,6 +131,9 @@ class DistPackageBuilder extends LibBase {
       this.entryName = response.entry;
     }
 
+    console.log(`[DEBUG] 选中的入口文件名: ${this.entryName}`);
+    console.log(`[DEBUG] 完整入口文件路径: ${this.entryFilePath}`);
+
     // 最后验证选中的入口文件确实存在（防止竞态条件）
     if (!fs.existsSync(this.entryFilePath)) {
       // 使用与tsup工具一致的错误格式，便于用户理解
@@ -134,6 +147,11 @@ class DistPackageBuilder extends LibBase {
     // 创建输出目录
     mkdirSync(this.distPath, { recursive: true });
 
+    console.log(`[DEBUG] 构建前再次检查入口文件`);
+    console.log(`[DEBUG] 入口文件名: ${this.entryName}`);
+    console.log(`[DEBUG] 入口文件路径: ${this.entryFilePath}`);
+    console.log(`[DEBUG] 文件是否存在: ${fs.existsSync(this.entryFilePath)}`);
+
     // 再次验证入口文件存在性，防止竞态条件或路径解析问题
     if (!fs.existsSync(this.entryFilePath)) {
       // 使用与tsup工具一致的错误格式，便于用户理解
@@ -142,7 +160,8 @@ class DistPackageBuilder extends LibBase {
 
     // 构建配置 - 使用tsup简化构建流程
     const buildOptions: Options = {
-      entry: [this.entryFilePath],
+      // 使用相对路径作为入口，避免tsup的路径解析问题
+      entry: [this.entryName],
       outDir: this.distPath,
       bundle: true,
       platform: 'node',
