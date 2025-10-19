@@ -123,7 +123,8 @@ class DistPackageBuilder extends LibBase {
 
     // 最后验证选中的入口文件确实存在（防止竞态条件）
     if (!fs.existsSync(this.entryFilePath)) {
-      throw new Appexit(`入口文件不存在: ${this.entryFilePath}`);
+      // 使用与tsup工具一致的错误格式，便于用户理解
+      throw new Appexit(`Cannot find ${this.entryFilePath}`);
     }
     console.log(`🔍 找到入口文件: ${this.entryFilePath}`);
   }
@@ -135,7 +136,8 @@ class DistPackageBuilder extends LibBase {
 
     // 再次验证入口文件存在性，防止竞态条件或路径解析问题
     if (!fs.existsSync(this.entryFilePath)) {
-      throw new Appexit(`构建时无法找到入口文件: ${this.entryFilePath}。请确保文件路径正确且文件存在。`);
+      // 使用与tsup工具一致的错误格式，便于用户理解
+      throw new Appexit(`Cannot find ${this.entryFilePath}`);
     }
 
     // 构建配置 - 使用tsup简化构建流程
@@ -162,7 +164,15 @@ class DistPackageBuilder extends LibBase {
     }
 
     // 使用tsup构建
-    await tsupBuild(buildOptions);
+    try {
+      console.log(`[DEBUG] 开始使用tsup构建，入口文件路径: ${this.entryFilePath}`);
+      await tsupBuild(buildOptions);
+      console.log(`[DEBUG] tsup构建成功完成`);
+    } catch (error: any) {
+      // 捕获tsup构建错误并添加来源标识
+      console.error(`[DEBUG] 构建错误来源: ${error.stack?.includes('tsup') ? 'tsup工具' : '我们的代码'}`);
+      throw error; // 重新抛出错误让上层处理
+    }
 
     // 手动读取生成的文件来检查
     console.log('✅ JS文件和类型定义构建完成');
