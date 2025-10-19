@@ -44,7 +44,8 @@ export class LibBase {
     /**执行Git命令并处理错误 - 统一Git操作的错误处理（工具方法）*/
     protected runGitCommand(cmd: string, options?: ExecSyncOptionsWithStringEncoding, throwOnError: boolean = true): string | null {
         try {
-            const result = execSync(`git ${cmd}`, {
+            // 禁止LF/CRLF警告输出，提升用户体验
+            const result = execSync(`git -c core.safecrlf=false ${cmd}`, {
                 stdio: 'pipe',
                 cwd: process.cwd(),
                 ...(options || {})
@@ -63,6 +64,10 @@ export class LibBase {
     /**执行交互式命令 - 用于需要用户交互的命令（工具方法）*/
     protected runInteractiveCommand(cmd: string, throwOnError: boolean = true): void {
         try {
+            // 如果是git命令，添加参数禁止LF/CRLF警告
+            if (cmd.startsWith('git')) {
+                cmd = cmd.replace('git', 'git -c core.safecrlf=false');
+            }
             execSync(cmd, { stdio: 'inherit', cwd: process.cwd() });
         } catch (error: any) {
             if (throwOnError) {
