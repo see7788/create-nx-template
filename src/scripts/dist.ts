@@ -142,20 +142,26 @@ class DistPackageBuilder extends LibBase {
     mkdirSync(this.distPath, { recursive: true });
 
     // 构建JS文件并输出到dist目录 - 仅针对单个入口文件及其依赖
-    const result = await esbuild({
+    const buildOptions = {
       entryPoints: [this.entryFilePath],
       bundle: true,
-      platform: 'node',
+      platform: 'node' as const,
       target: 'node18',
       outfile: path.join(this.distPath, 'index.js'),
       metafile: true,
       write: true,
       external: ['node:*'],
-      // 添加类型定义生成配置
-      tsconfig: path.join(this.cwdProjectInfo.cwdPath, 'tsconfig.json'),
       // 启用sourcemap以便更好地调试
       sourcemap: true
-    });
+    };
+
+    // 只有当tsconfig.json存在时才添加tsconfig配置
+    const tsConfigPath = path.join(this.cwdProjectInfo.cwdPath, 'tsconfig.json');
+    if (fs.existsSync(tsConfigPath)) {
+      (buildOptions as any).tsconfig = tsConfigPath;
+    }
+
+    const result = await esbuild(buildOptions);
 
     // 为TypeScript文件生成类型定义文件
     if (this.entryFilePath.endsWith('.ts') || this.entryFilePath.endsWith('.tsx')) {
@@ -163,7 +169,7 @@ class DistPackageBuilder extends LibBase {
     }
 
     console.log('✅ JS文件构建完成');
-    return { metafile: result.metafile };
+    return { metafile: result.metafile || {} as Metafile };
   }
 
   /**分析并提取使用的依赖项 - 健壮的错误处理和依赖分析*/
