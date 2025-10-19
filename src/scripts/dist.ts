@@ -13,7 +13,8 @@ class DistPackageBuilder extends LibBase {
   private entryName = '';
 
   private get entryFilePath(): string {
-    return path.join(this.cwdProjectInfo.cwdPath, this.entryName);
+    // 使用normalize确保路径格式正确，避免出现双斜杠等问题
+    return path.normalize(path.join(this.cwdProjectInfo.cwdPath, this.entryName));
   }
 
 
