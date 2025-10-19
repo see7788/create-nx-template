@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from "fs"
 import { LibBase, Appexit } from "./tool.js";
-import { build as tsupBuild } from 'tsup';
+import { build as tsupBuild,Options } from 'tsup';
 import prompts from 'prompts';
 
 class DistPackageBuilder extends LibBase {
@@ -91,39 +91,25 @@ class DistPackageBuilder extends LibBase {
     if (availableFiles.length === 1) {
       this.entryName = availableFiles[0].file;
     } else {
-      // 需要用户选择的情况
-      let choices = [];
-      let message = '请选择入口文件';
-      
-      // 如果有多个标准入口文件，直接使用它们
-      if (availableFiles.length > 0) {
-        choices = availableFiles.map(({ file, fullPath }) => ({
-          title: file,
-          value: file,
-          description: fullPath,
-        }));
-      } else {
-        // 没有标准入口文件，查找所有 JavaScript/TypeScript 文件
-        const currentDirFiles = fs.readdirSync(this.cwdProjectInfo.cwdPath, { withFileTypes: true })
-          .filter(dirent => dirent.isFile() && /\.(js|jsx|ts|tsx)$/i.test(dirent.name))
-          .map(dirent => dirent.name)
-          .sort();
+      const currentDirFiles = fs.readdirSync(this.cwdProjectInfo.cwdPath, { withFileTypes: true })
+        .filter(dirent => dirent.isFile() && /\.(js|jsx|ts|tsx)$/i.test(dirent.name))
+        .map(dirent => dirent.name)
+        .sort();
 
-        if (currentDirFiles.length === 0) {
-          throw new Appexit('当前目录下没有找到任何 JavaScript 或 TypeScript 文件');
-        }
-
-        choices = currentDirFiles.map(file => ({
-          title: file,
-          value: file,
-          description: path.join(this.cwdProjectInfo.cwdPath, file),
-        }));
+      if (currentDirFiles.length === 0) {
+        throw new Appexit('当前目录下没有找到任何 JavaScript 或 TypeScript 文件');
       }
+
+      const choices = currentDirFiles.map(file => ({
+        title: file,
+        value: file,
+        description: path.join(this.cwdProjectInfo.cwdPath, file),
+      }));
       // 显示交互式选择菜单，让用户从准备好的文件列表中选择入口文件
       const response = await prompts({
         type: 'select',
         name: 'entry',
-        message,
+        message: '请选择入口文件',
         choices,
       });
       // 处理用户取消选择的情况 - 抛出特殊错误以标记正常退出
@@ -149,7 +135,7 @@ class DistPackageBuilder extends LibBase {
     mkdirSync(this.distPath, { recursive: true });
 
     // 构建配置 - 使用tsup简化构建流程
-    const buildOptions: any = {
+    const buildOptions: Options = {
       entry: [this.entryFilePath],
       outDir: this.distPath,
       bundle: true,
