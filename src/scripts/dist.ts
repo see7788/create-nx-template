@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { LibBase, Appexit } from "./tool.js";
 import { build as tsupBuild, Options } from 'tsup';
-import { build as esbuild,Metafile } from "esbuild"
+import { build as esbuild, Metafile } from "esbuild"
 export class DistPackageBuilder extends LibBase {
   //入口文件路径
   private entryFilePath!: string
@@ -18,10 +18,7 @@ export class DistPackageBuilder extends LibBase {
     super();
   }
 
-
-  /**执行构建工作流 - 编排各个业务步骤的具体执行*/
   async task1(): Promise<void> {
-    // 编排业务流程的执行顺序
     console.log('\n🚀 开始抽取流程');
 
     console.log('📋 1. 交互定义dist目录名称');
@@ -30,15 +27,11 @@ export class DistPackageBuilder extends LibBase {
     console.log('📋 2. 交互定义入口文件');
     await this.askEntryFilePath();
 
-    // 执行核心构建操作
-    console.log('⚙️3. 抽取js,.d.ts');
+    console.log('⚙️3. 抽取js,.d.ts,插件里实现依赖抽取和package.json生成');
     await this.buildJsFile();
-    // console.log('⚙️3. 抽取相关依赖配置生成package.json');
-    // await this.createPackageJson();
     console.log('\n🚀 完成抽取流程');
   }
 
-  /**询问用户设置输出目录名称 */
   private async askDistDirName(): Promise<void> {
     const prompts = await import('prompts');
     // 直接提供带默认值的输入框供用户编辑
@@ -66,7 +59,6 @@ export class DistPackageBuilder extends LibBase {
     this.distDirName = response.distName.trim();
     console.log(`📁 输出目录已设置为: ${this.distPath}`);
   }
-  /**查找项目入口文件 - 异步模式，使用异常处理错误情况*/
   private async askEntryFilePath(): Promise<void> {
     // 使用当前执行命令时的工作目录
     const currentCwd = this.cwdProjectInfo.cwdPath
@@ -113,31 +105,15 @@ export class DistPackageBuilder extends LibBase {
 
   /**构建JS文件和类型定义 - 使用tsup构建系统*/
   private async buildJsFile() {
-    // 创建输出目录
     fs.mkdirSync(this.distPath, { recursive: true });
-
-    console.log(`[DEBUG] 构建前再次检查入口文件`);
-    console.log(`[DEBUG] 入口文件名: ${path.basename(this.entryFilePath)}`);
-    console.log(`[DEBUG] 入口文件路径: ${this.entryFilePath}`);
-    console.log(`[DEBUG] 文件是否存在: ${fs.existsSync(this.entryFilePath)}`);
-
-    // 再次验证入口文件存在性，防止竞态条件或路径解析问题
-    if (!fs.existsSync(this.entryFilePath)) {
-      // 使用与tsup工具一致的错误格式，便于用户理解
-      throw new Appexit(`Cannot find ${this.entryFilePath}`);
-    }
-
-    // 构建配置 - 使用tsup简化构建流程
     try {
-      console.log(`[DEBUG] 开始使用tsup构建，入口文件路径: ${this.entryFilePath}`);
       await tsupBuild({
         entry: {
-          index: path.basename(this.entryFilePath) // 重命名输出文件为index
+          index: path.basename(this.entryFilePath)
         },
-        esbuildPlugins:[{
+        esbuildPlugins: [{
           name: 'dependency-collector',
-          setup:(build) =>{
-            // 这个插件可以用来收集依赖信息
+          setup: (build) => {
             build.onEnd(result => {
               if (result.metafile) {
                 this.createPackageJson(result.metafile)
@@ -153,11 +129,9 @@ export class DistPackageBuilder extends LibBase {
         sourcemap: true,
         dts: true,
         external: ['node:*'],
-        metafile: true,
         clean: true,
       });
     } catch (error) {
-      // 保留原始错误信息并添加来源标识
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Appexit(`[DEBUG] 构建错误来源: tsup工具\n原始错误: ${errorMessage}`);
     }
@@ -185,13 +159,10 @@ export class DistPackageBuilder extends LibBase {
         usedDevDeps[name] = rootPkg.devDependencies[name]
       }
     }
-    // console.log({usedDeps,usedDevDeps,imported})
-
     const distPkg = {
       name: this.distDirName,
       version: rootPkg.version,
       description: rootPkg.description,
-      keywords: rootPkg.keywords,
       author: rootPkg.author,
       license: rootPkg.license,
       repository: rootPkg.repository,
@@ -208,14 +179,12 @@ export class DistPackageBuilder extends LibBase {
       dependencies: usedDeps,
       devDependencies: usedDevDeps,
     }
-
+    console.log("生成package.json")
     fs.mkdirSync(this.distPath, { recursive: true })
     fs.writeFileSync(path.join(this.distPath, "package.json"), JSON.stringify(distPkg, null, 2))
   }
 }
 
-
-/**直接运行脚本时执行 - 优雅的错误处理*/
 if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])) {
   new DistPackageBuilder().task1();
 }

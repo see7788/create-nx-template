@@ -99,7 +99,7 @@ export class LibBase {
     }
 
     /**从盘符路径直至选择文件的交互式方法 - 支持多级目录导航和文件选择 */
-    protected async selectLocalFilePath(fileExtensions: string[] = ['.js', '.jsx', '.ts', '.tsx'], initialPath?: string): Promise<string> {
+    protected async askLocalFilePath(fileExtensions: string[] = ['.js', '.jsx', '.ts', '.tsx'], initialPath?: string): Promise<string> {
         const prompts = await import('prompts');
         console.log('📁 开始文件选择...');
 
