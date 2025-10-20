@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { LibBase, Appexit } from "./tool.js";
 import { build as tsupBuild, Options } from 'tsup';
-import { build as esbuild,Metafile } from "esbuild"
+import { build as esbuild } from "esbuild"
 export class DistPackageBuilder extends LibBase {
   //入口文件路径
   private entryFilePath!: string
@@ -33,8 +33,8 @@ export class DistPackageBuilder extends LibBase {
     // 执行核心构建操作
     console.log('⚙️3. 抽取js,.d.ts');
     await this.buildJsFile();
-    // console.log('⚙️3. 抽取相关依赖配置生成package.json');
-    // await this.createPackageJson();
+    console.log('⚙️3. 抽取相关依赖配置生成package.json');
+    await this.createPackageJson();
     console.log('\n🚀 完成抽取流程');
   }
 
@@ -134,17 +134,7 @@ export class DistPackageBuilder extends LibBase {
         entry: {
           index: path.basename(this.entryFilePath) // 重命名输出文件为index
         },
-        esbuildPlugins:[{
-          name: 'dependency-collector',
-          setup:(build) =>{
-            // 这个插件可以用来收集依赖信息
-            build.onEnd(result => {
-              if (result.metafile) {
-                this.createPackageJson(result.metafile)
-              }
-            });
-          }
-        }],
+        esbuildOptions: (...c) => console.log(...c),
         outDir: this.distPath,
         bundle: true,
         platform: 'node',
@@ -163,11 +153,21 @@ export class DistPackageBuilder extends LibBase {
     }
   }
 
-  /**分析并提取使用的依赖项 - 结合esbuild分析 */
-  private async createPackageJson(metafile: Metafile) {
-    console.log("开始提取依赖")
+  /**分析并提取使用的依赖项 - 结合tsup构建过程 */
+  private async createPackageJson() {
+
+    const result = await esbuild({
+      entryPoints: [this.entryFilePath],
+      bundle: true,
+      platform: 'node',
+      target: 'node18',
+      metafile: true,
+      write: false,
+      external: ['node:*'],
+    })
+
     const imported = new Set<string>()
-    for (const key in metafile.inputs) {
+    for (const key in result.metafile.inputs) {
       const segs = key.match(/node_modules[/\\](?:\.pnpm[/\\])?(?:@[^/\\]+[/\\][^/\\]+|[^/\\]+)/g)
       if (!segs) continue
       for (const seg of segs) {
