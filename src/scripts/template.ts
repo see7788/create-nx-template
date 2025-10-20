@@ -6,189 +6,25 @@ import { fileURLToPath } from 'url';
 import degit from 'degit';
 import { Appexit, LibBase } from "./tool.js";
 
-// 定义模板类型别名
-type template_t = [id: string, remark: string, type: "createFromPathProject" | "createFromdegit" | "createFromTplsDir"];
-
 export class ProjectTemplateCreator {
   /**模板列表*/
-  private templates: template_t[] = [];
+  private readonly templates: [name: string, remark: string][] = [
+    ["createFromLocalProject", "从本地项目抽取"],
+    ['see7788/electron-template', '牛x的electron脚手架'],
+    ['see7788/ts-template', 'typescript基本脚手架'],
+  ];
   /**确定项目名*/
   private validProjectName!: string;
 
   /**确定模版 */
   private templatesIndex!: number
 
+  /**本地项目路径 */
+  private localProjectPath = '';
+
   /**目标目录路径 - 动态计算项目创建的完整目标目录绝对路径，用于模板克隆和文件操作 */
   private get targetPath(): string {
     return path.resolve(this.validProjectName);
-  }
-  
-  /**获取所有模板（包括内置模板和远程模板） */
-  private get allTemplates(): template_t[] {
-    // 基础模板列表
-    const baseTemplates: template_t[] = [
-      ['local', '从本地项目抽取', 'createFromPathProject'],
-      ['see7788/electron-template', '牛x的electron脚手架', 'createFromdegit'],
-      ['see7788/ts-template', 'typescript基本脚手架', 'createFromdegit'],
-    ];
-    
-    // 扁平化处理tpls目录模板
-    const tplsDir = path.join(__dirname, '../../tpls');
-    if (fs.existsSync(tplsDir)) {
-      try {
-        const templateDirs = fs.readdirSync(tplsDir, { withFileTypes: true })
-          .filter(dirent => dirent.isDirectory());
-        
-        // 为每个tpls模板创建独立的选项
-        for (const dirent of templateDirs) {
-          const templatePath = path.join(tplsDir, dirent.name);
-          const packageJsonPath = path.join(templatePath, 'package.json');
-          
-          let name = dirent.name;
-          let description = '';
-          
-          // 尝试读取package.json获取名称和描述
-          if (fs.existsSync(packageJsonPath)) {
-            try {
-              const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-              name = packageJson?.name || dirent.name;
-              description = packageJson?.description || '';
-            } catch {
-              // JSON解析失败时使用目录名
-            }
-          }
-          
-          const displayName = description ? `${name} - ${description}` : name;
-          // 将tpls模板直接添加到基础模板列表中，使用tpls-前缀标识
-            baseTemplates.push([`tpls-${dirent.name}`, `内置模板: ${displayName}`, 'createFromTplsDir'] as template_t);
-        }
-      } catch {
-        // 读取tpls目录失败时忽略
-      }
-    }
-    
-    return baseTemplates;
-  }
-  
-  /**
-   * 从tpls目录创建项目
-   * @param templateId 可选的模板ID，格式为'tpls-模板目录名'
-   */
-  private async createFromTplsDir(templateId?: string): Promise<void> {
-    try {
-      const tplsDir = path.join(__dirname, '../../tpls');
-      
-      // 检查tpls目录是否存在
-      if (!fs.existsSync(tplsDir)) {
-        console.error(`❌ tpls目录不存在: ${tplsDir}`);
-        throw new Error('内置模板目录不存在');
-      }
-      
-      // 如果提供了模板ID，直接使用
-      let selectedTemplatePath: string;
-      let selectedTemplateName: string;
-      
-      if (templateId && templateId.startsWith('tpls-')) {
-        const templateDirName = templateId.replace('tpls-', '');
-        selectedTemplatePath = path.join(tplsDir, templateDirName);
-        
-        // 验证模板目录是否存在
-        if (!fs.existsSync(selectedTemplatePath)) {
-          throw new Error(`模板 ${templateDirName} 不存在`);
-        }
-        
-        // 获取模板名称
-        const packageJsonPath = path.join(selectedTemplatePath, 'package.json');
-        if (fs.existsSync(packageJsonPath)) {
-          try {
-            const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-            selectedTemplateName = packageJson?.name || templateDirName;
-          } catch {
-            selectedTemplateName = templateDirName;
-          }
-        } else {
-          selectedTemplateName = templateDirName;
-        }
-      } else {
-        // 如果没有提供模板ID，显示选择菜单
-        const templateDirs = fs.readdirSync(tplsDir, { withFileTypes: true })
-          .filter(dirent => dirent.isDirectory())
-          .map(dirent => dirent.name);
-        
-        if (templateDirs.length === 0) {
-          console.warn('⚠️  tpls目录中没有可用的模板');
-          return;
-        }
-        
-        // 准备模板信息
-        const templates: Array<{name: string, description: string, path: string}> = [];
-        for (const templateDir of templateDirs) {
-          const templatePath = path.join(tplsDir, templateDir);
-          const packageJsonPath = path.join(templatePath, 'package.json');
-          
-          let name = templateDir;
-          let description = '';
-          
-          // 尝试读取package.json获取名称和描述
-          if (fs.existsSync(packageJsonPath)) {
-            try {
-              const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
-              name = packageJson?.name || templateDir;
-              description = packageJson?.description || '';
-            } catch {
-              // JSON解析失败时使用目录名
-            }
-          }
-          
-          templates.push({
-            name,
-            description,
-            path: templatePath
-          });
-        }
-        
-        // 获取用户选择
-        const response = await prompts({
-          type: 'select',
-          name: 'templateIndex',
-          message: '请选择内置模板序号',
-          choices: templates.map((template, index) => ({
-            title: template.description ? `${template.name} - ${template.description}` : template.name,
-            value: index
-          }))
-        });
-        
-        // 用户取消
-        if (response?.templateIndex === undefined) {
-          return;
-        }
-        
-        const selectedTemplate = templates[response.templateIndex];
-        if (!selectedTemplate) {
-          throw new Error('无效的模板选择');
-        }
-        
-        selectedTemplatePath = selectedTemplate.path;
-        selectedTemplateName = selectedTemplate.name;
-      }
-      
-      console.log(`\n📁 使用内置模板: ${selectedTemplateName}`);
-      
-      // 检查模板目录是否存在dist目录
-      const templateDistPath = path.join(selectedTemplatePath, 'dist');
-      const sourcePath = fs.existsSync(templateDistPath) ? templateDistPath : selectedTemplatePath;
-      
-      console.log(`\n📂 正在复制模板文件...`);
-      
-      // 复制模板文件到目标路径
-      this.copyDirectory(sourcePath, this.targetPath);
-      
-      console.log(`✅ 模板文件复制完成`);
-      
-    } catch (error) {
-      console.error('❌ 从内置模板创建项目时出错:', error instanceof Error ? error.message : String(error));
-      throw error;
-    }
   }
 
   /**执行项目创建工作流 - 编排各个业务步骤的具体执行*/
@@ -199,30 +35,14 @@ export class ProjectTemplateCreator {
       console.log('📝 1. 交互设置项目名称,同时排除目录已存在的情况');
       this.validProjectName = initialProjectName || ""
       await this.validProjectNameSet();
-      
       console.log('🎯 2. 选择模板index');
       await this.templatesIndexSet();
       console.log('🔨 3. 模版本地化');
-      
-      // 使用模板的第三个参数（方法类型）直接调用相应的创建方法
-      const templateInfo = this.templates[this.templatesIndex];
-      if (!templateInfo) {
-        throw new Error('无效的模板选择');
+      if (this.templatesIndex === 0) {
+        await this.createFromLocalProject();
+      } else {
+        await this.createFromdegit();
       }
-      
-      const [templateId, _, methodType] = templateInfo;
-      
-      // 根据方法类型调用对应的方法
-      if (methodType === 'createFromPathProject') {
-        await this.createFromPathProject();
-      } else if (methodType === 'createFromTplsDir') {
-        // 传递templateId给createFromTplsDir方法
-        await this.createFromTplsDir(templateId);
-      } else if (methodType === 'createFromdegit') {
-        // 传递仓库URL给createFromdegit方法
-        await this.createFromdegit(templateId);
-      }
-      
       console.log('📦 4. githubpublishFile');
       await this.githubpublishFileAdd()
       console.log('✏️  5. packageJsonNameSet');
@@ -314,9 +134,6 @@ export class ProjectTemplateCreator {
 
   /**选择模板索引*/
   private async templatesIndexSet(): Promise<void> {
-    // 使用getter获取所有模板
-    this.templates = this.allTemplates;
-    
     const response = await prompts({
       type: 'select',
       name: 'templateIndex',
@@ -334,10 +151,15 @@ export class ProjectTemplateCreator {
     }
 
     this.templatesIndex = response.templateIndex;
+
+    // 如果选择了本地项目模板，直接进入本地项目路径选择
+    if (this.templatesIndex === 0) {
+      await this.selectLocalProjectPath();
+    }
   }
 
   /**选择本地项目路径 - 优化的多级选择体验 */
-  private async selectLocalProjectPath(): Promise<string> {
+  private async selectLocalProjectPath(): Promise<void> {
     console.log('📁 开始本地项目选择...');
 
     // 首先获取可用的磁盘驱动器
@@ -527,8 +349,9 @@ export class ProjectTemplateCreator {
           }
 
           // 选择了文件，将其作为入口文件
-          console.log(`\n✅ 已选择入口文件: ${selectionResponse.selection}`);
-          return selectionResponse.selection;
+          this.localProjectPath = selectionResponse.selection;
+          console.log(`\n✅ 已选择入口文件: ${this.localProjectPath}`);
+          return;
         } else if (selectedStats.isDirectory()) {
           // 选择了目录，继续深入
           currentPath = selectionResponse.selection;
@@ -544,8 +367,9 @@ export class ProjectTemplateCreator {
             });
 
             if (confirmResponse.confirm) {
-              console.log(`\n✅ 已选择项目目录: ${currentPath}`);
-              return currentPath;
+              this.localProjectPath = currentPath;
+              console.log(`\n✅ 已选择项目目录: ${this.localProjectPath}`);
+              return;
             }
           }
         }
@@ -566,21 +390,18 @@ export class ProjectTemplateCreator {
   }
 
   /**从本地项目生成模板 - 使用子进程调用dist功能 */
-  private async createFromPathProject(): Promise<void> {
-    // 获取本地项目路径
-    const localProjectPath = await this.selectLocalProjectPath();
-    
+  private async createFromLocalProject(): Promise<void> {
     console.log(`\n🚀 从本地项目生成模板: ${this.validProjectName}`);
-    console.log(`📦 处理项目: ${localProjectPath}\n`);
+    console.log(`📦 处理项目: ${this.localProjectPath}\n`);
 
     // 保存当前工作目录
     const originalCwd = process.cwd();
 
     try {
       // 临时切换到本地项目目录
-      const projectDir = fs.statSync(localProjectPath).isDirectory()
-        ? localProjectPath
-        : path.dirname(localProjectPath);
+      const projectDir = fs.statSync(this.localProjectPath).isDirectory()
+        ? this.localProjectPath
+        : path.dirname(this.localProjectPath);
 
       process.chdir(projectDir);
 
@@ -654,7 +475,9 @@ export class ProjectTemplateCreator {
   }
 
   /**用degit创建项目*/
-  private async createFromdegit(repoUrl: string): Promise<void> {
+  private async createFromdegit(): Promise<void> {
+    const repoUrl = this.templates[this.templatesIndex][0];
+
     console.log(`\n🚀 创建项目: ${this.validProjectName}`);
     console.log(`📦 使用 degit 从 ${repoUrl} 获取模板...\n`);
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import prompts from 'prompts';
 import { ProjectTemplateCreator } from './scripts/template.js';
 import { ReleaseManager } from './scripts/release.js';
