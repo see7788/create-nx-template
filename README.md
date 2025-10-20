@@ -1,4 +1,4 @@
-# create-nx-template
+# create-todo
 
 一个现代化的前端项目模板生成工具，旨在简化项目初始化流程，提供丰富的模板选择和灵活的配置选项。
 
@@ -17,13 +17,13 @@
 
 ```bash
 # 使用pnpm（推荐）
-pnpm create nx-template
+pnpm create todo
 
 # 使用npm
-npm create nx-template
+npm create todo
 
 # 使用yarn
-yarn create nx-template
+yarn create todo
 ```
 
 ## 🔨 使用方法
@@ -34,7 +34,7 @@ yarn create nx-template
 
 ```bash
 # 创建名为my-app的项目
-pnpm create nx-template my-app
+pnpm create todo my-app
 ```
 
 #### 交互式创建
@@ -42,7 +42,7 @@ pnpm create nx-template my-app
 不提供项目名称时，工具将进入交互式模式：
 
 ```bash
-pnpm create nx-template
+pnpm create todo
 # 系统将引导您完成项目名称和模板选择
 ```
 
@@ -54,10 +54,10 @@ pnpm create nx-template
 
 ```bash
 # 完整命令
-pnpm create nx-template -- --release
+pnpm create todo -- --release
 
 # 简写命令
-pnpm create nx-template -- -r
+pnpm create todo -- -r
 ```
 
 ## 📋 支持的模板
@@ -86,8 +86,8 @@ pnpm create nx-template -- -r
 
 ```bash
 # 克隆仓库
-git clone https://github.com/see7788/create-nx-template.git
-cd create-nx-template
+git clone https://github.com/see7788/create-todo.git
+cd create-todo
 
 # 安装依赖
 pnpm install
@@ -105,10 +105,9 @@ pnpm start
 
 ## 🐛 问题反馈
 
-如有任何问题或建议，请在 [GitHub Issues](https://github.com/see7788/create-nx-template/issues) 提交反馈。我们将尽快回复并解决您的问题。
+如有任何问题或建议，请在 [GitHub Issues](https://github.com/see7788/create-todo/issues) 提交反馈。我们将尽快回复并解决您的问题。
 
 ## 🤝 贡献
 
 欢迎提交Pull Request来改进本项目。请确保在提交前进行适当的测试。
-
-如有任何问题或建议，请在 [GitHub Issues](https://github.com/see7788/create-nx-template/issues) 中提交。
+114| 如有任何问题或建议，请在 [GitHub Issues](https://github.com/see7788/create-todo/issues) 中提交。
