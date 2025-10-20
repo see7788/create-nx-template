@@ -68,10 +68,12 @@ class DistPackageBuilder extends LibBase {
   }
   /**查找项目入口文件 - 异步模式，使用异常处理错误情况*/
   private async askEntryFilePath(): Promise<void> {
-    console.log(`[DEBUG] 当前工作目录: ${this.cwdProjectInfo.cwdPath}`);
+    // 使用当前执行命令时的工作目录
+    const currentCwd = this.cwdProjectInfo.cwdPath
+    console.log(`[DEBUG] 当前工作目录: ${currentCwd}`,process.argv);
     
-    // 读取目录内的文件，过滤保留特定扩展名的文件
-    const list = fs.readdirSync(this.cwdProjectInfo.cwdPath, { withFileTypes: true })
+    // 读取当前目录内的文件，过滤保留特定扩展名的文件
+    const list = fs.readdirSync(currentCwd, { withFileTypes: true })
       .filter((dirent: fs.Dirent) => dirent.isFile() && /\.(js|jsx|ts|tsx|cjs|mjs)$/i.test(dirent.name))
       .map((dirent: fs.Dirent) => dirent.name);
     
@@ -121,7 +123,7 @@ class DistPackageBuilder extends LibBase {
       }
       
       // 设置完整的入口文件路径
-      this.entryFilePath = path.join(this.cwdProjectInfo.cwdPath, response.entryFile);
+      this.entryFilePath = path.join(currentCwd, response.entryFile);
       console.log(`✅ 已选择入口文件: ${response.entryFile}`);
     } else {
       throw new Appexit('未找到有效的入口文件');
