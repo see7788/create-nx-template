@@ -61,7 +61,6 @@ export class ProjectTemplateCreator {
     }
   }
   
-
   /**交互确定项目名称*/
   private async validProjectNameSet(): Promise<void> {
     let projectName: string | undefined = this.validProjectName;
@@ -437,30 +436,16 @@ export class ProjectTemplateCreator {
   }
 
   /**使用子进程运行dist命令 */
-  private runDistCommand(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      // 执行dist命令
-      const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-      const args = ['create-nx-template', 'dist'];
-
-      const child = spawn(command, args, {
-        stdio: 'inherit', // 继承父进程的标准输入输出
-        shell: true
-      });
-
-      child.on('error', (error) => {
-        console.error('❌ 执行dist命令失败:', error);
-        reject(error);
-      });
-
-      child.on('close', (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(`dist命令执行失败，退出码: ${code}`));
-        }
-      });
-    });
+  private async runDistCommand(): Promise<void> {
+    try {
+      // 直接使用DistPackageBuilder类，避免子进程调用带来的路径和递归问题
+      const { DistPackageBuilder } = await import('./dist.js');
+      const distBuilder = new DistPackageBuilder();
+      await distBuilder.task1();
+    } catch (error) {
+      console.error('❌ 执行dist功能失败:', error instanceof Error ? error.message : String(error));
+      throw error;
+    }
   }
 
   /**复制目录函数 - 递归复制目录内容 */
