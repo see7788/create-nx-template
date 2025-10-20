@@ -31,8 +31,8 @@ export class DistPackageBuilder extends LibBase {
     await this.askEntryFilePath();
 
     // 执行核心构建操作
-    // console.log('⚙️3. 抽取js');
-    // await this.buildJsFile();
+    console.log('⚙️3. 抽取js,.d.ts');
+    await this.buildJsFile();
     console.log('⚙️3. 抽取相关依赖配置生成package.json');
     await this.createPackageJson();
     console.log('\n🚀 完成抽取流程');
@@ -184,7 +184,7 @@ export class DistPackageBuilder extends LibBase {
         usedDevDeps[name] = rootPkg.devDependencies[name]
       }
     }
-    console.log({usedDeps,usedDevDeps,imported})
+   // console.log({usedDeps,usedDevDeps,imported})
 
     const distPkg = {
       name: rootPkg.name,
