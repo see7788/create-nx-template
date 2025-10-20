@@ -60,7 +60,7 @@ export class ProjectTemplateCreator {
       await this.targetPathDEl()
     }
   }
-  
+
   /**交互确定项目名称*/
   private async validProjectNameSet(): Promise<void> {
     let projectName: string | undefined = this.validProjectName;
