@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as fs from 'node:fs';
 import path from 'path';
+import type { PackageJson } from 'type-fest';
 import { fileURLToPath } from 'url';
 import { LibBase, Appexit } from "./tool.js";
 import { build as tsupBuild, Options } from 'tsup';
@@ -174,13 +175,14 @@ export class DistPackageBuilder extends LibBase {
         usedDevDeps[name] = rootPkg.devDependencies[name]
       }
     }
-    const distPkg = {
+    const distPkg: PackageJson = {
       name: this.distDirName,
-      version: rootPkg.version,
-      description: rootPkg.description,
-      author: rootPkg.author,
-      license: rootPkg.license,
-      repository: rootPkg.repository,
+      version: rootPkg.version || '1.0.0',
+      description: rootPkg.description || '',
+      author: rootPkg.author || '',
+      license: rootPkg.license || 'MIT',
+      repository: rootPkg.repository || { type: 'git', url: '' },
+      type:'module',
       main: './index.mjs',
       module: './index.mjs',
       types: './index.d.mts',
