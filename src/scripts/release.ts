@@ -27,6 +27,9 @@ export class ReleaseManager extends LibBase {
     console.log('📤 2. 推送代码和标签到远程仓库');
     await this.checkAndPushGitChanges();
     console.log(`\n🚀 完成版本发布流程 - 版本: ${this.nextVersion}`)
+    // 打印发布链接
+    console.log(`🔗 GitHub Release: https://github.com/see7788/create-nx-template/releases/tag/v${this.nextVersion}`)
+    console.log(`🔗 NPM 包地址: https://www.npmjs.com/package/create-nx-template/v/${this.nextVersion}`)
     // GitHub Release将由GitHub Actions自动创建（见.github/workflows/publish.yml）
   }
 
