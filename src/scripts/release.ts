@@ -29,7 +29,7 @@ export class ReleaseManager extends LibBase {
     console.log(`\n🚀 完成版本发布流程 - 版本: ${this.nextVersion}`)
     // 打印发布链接 - 从版本号中移除时间戳部分用于GitHub标签
     const gitTagVersion = this.nextVersion.split('+')[0];
-    console.log(`🔗 GitHub Release: https://github.com/see7788/create-todo/releases/tag/v${gitTagVersion}`)
+    console.log(`🔗 GitHub Release: https://github.com/see7788/todo/releases/tag/v${gitTagVersion}`)
     console.log(`🔗 NPM 包地址: https://www.npmjs.com/package/create-todo`)
     console.log(`📦 当前发布版本: ${this.nextVersion}`)
     // GitHub Release将由GitHub Actions自动创建（见.github/workflows/publish.yml）
