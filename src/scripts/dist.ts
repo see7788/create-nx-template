@@ -170,7 +170,8 @@ export class DistPackageBuilder extends LibBase {
       const segs = key.match(/node_modules[/\\](?:\.pnpm[/\\])?(?:@[^/\\]+[/\\][^/\\]+|[^/\\]+)/g)
       if (!segs) continue
       for (const seg of segs) {
-        imported.add(seg)
+        const libname=seg.split(/[/\\]/).pop()
+        if(libname)imported.add(libname)
       }
     }
     const rootPkg = this.cwdProjectInfo.pkgJson
