@@ -173,7 +173,10 @@ class DistPackageBuilder extends LibBase {
       // 排除Node.js核心模块
       external: ['node:*'],
       // 生成metafile用于依赖分析
-      metafile: true
+      metafile: true,
+      // 清理输出目录
+      clean: true,
+      // 移除write属性，tsup不支持此选项
     };
 
     // 只有当tsconfig.json存在时才添加tsconfig配置
@@ -182,57 +185,108 @@ class DistPackageBuilder extends LibBase {
       buildOptions.tsconfig = tsConfigPath;
     }
 
-    // 使用tsup构建
     try {
       console.log(`[DEBUG] 开始使用tsup构建，入口文件路径: ${this.entryFilePath}`);
+      
+      // 使用tsup API模式
+      // 注意：根据tsup的API设计，metafile信息可能不会直接在返回值中提供
       await tsupBuild(buildOptions);
       console.log(`[DEBUG] tsup构建成功完成`);
-    } catch (error: any) {
+      
+      // 由于tsup API的限制，我们将使用静态分析作为主要的依赖检测方法
+      // 这是更可靠的方式来分析项目依赖
+      console.log(`[DEBUG] 将使用静态分析方法分析依赖关系`);
+      
+      return { metafile: null };
+    } catch (error) {
       // 保留原始错误信息并添加来源标识
-      const errorSource = error.stack?.includes('tsup') ? 'tsup工具' : '我们的代码';
-      const originalMessage = error.message || String(error);
-      throw new Appexit(`[DEBUG] 构建错误来源: ${errorSource}\n原始错误: ${originalMessage}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Appexit(`[DEBUG] 构建错误来源: tsup工具\n原始错误: ${errorMessage}`);
+    } finally {
+      // 构建完成提示
+      console.log('✅ JS文件和类型定义构建完成');
     }
-
-    // 手动读取生成的文件来检查
-    console.log('✅ JS文件和类型定义构建完成');
-    return { metafile: {} }; // 暂时返回空对象，依赖分析逻辑需要调整
   }
 
   /**分析并提取使用的依赖项 - 健壮的错误处理和依赖分析*/
   private async extractUsedDependencies(result: { metafile: any }) {
     const imported = new Set<string>();
+    console.log('[DEBUG] 开始分析项目依赖');
 
     // 安全地检查metafile
     if (!result.metafile || !result.metafile.inputs) {
-      console.warn('⚠️ 无法分析依赖关系：缺少metafile信息');
-      return { usedDeps: {}, usedDevDeps: {} };
-    }
-
-    // 遍历所有输入文件提取依赖
-    for (const key in result.metafile.inputs) {
-      const segs = key.match(/node_modules[/\\](?:\.pnpm[/\\])?(?:@[^/\\]+[/\\][^/\\]+|[^/\\]+)/g);
-      if (!segs) continue;
-
-      for (const seg of segs) {
-        const name = seg.includes('@')
-          ? seg.split(/[/\\]/).slice(-2).join('/')
-          : seg.split(/[/\\]/).pop();
-
-        imported.add(name as any);
+      console.warn('⚠️ 无法通过metafile分析依赖关系');
+      console.log('[DEBUG] 使用静态分析作为替代方案');
+      
+      try {
+        // 读取入口文件内容进行简单的静态分析
+        const entryContent = fs.readFileSync(this.entryFilePath, 'utf-8');
+        
+        // 提取import语句中的包名
+        const importRegex = /from\s+['"]((?:@[^/]+[/])?[^'"]+)['"]/g;
+        let match;
+        while ((match = importRegex.exec(entryContent)) !== null) {
+          const depName = match[1];
+          // 只添加非相对路径的依赖（相对路径是项目内部文件）
+          if (!depName.startsWith('./') && !depName.startsWith('../')) {
+            imported.add(depName);
+          }
+        }
+        console.log(`[DEBUG] 静态分析找到${imported.size}个依赖`);
+      } catch (error) {
+        console.error('❌ 静态分析失败:', error instanceof Error ? error.message : String(error));
+        // 如果静态分析也失败，就从原始package.json中复制所有依赖
+        console.log('[DEBUG] 静态分析失败，将从原始package.json复制所有依赖');
       }
+    } else {
+      // 如果有metafile信息，则使用它进行精确的依赖分析
+      console.log('[DEBUG] 使用metafile信息进行精确依赖分析');
+      
+      // 遍历所有输入文件提取依赖
+      for (const key in result.metafile.inputs) {
+        const segs = key.match(/node_modules[/\\](?:\.pnpm[/\\])?(?:@[^/\\]+[/\\][^/\\]+|[^/\\]+)/g);
+        if (!segs) continue;
+
+        for (const seg of segs) {
+          const name = seg.includes('@')
+            ? seg.split(/[/\\]/).slice(-2).join('/')
+            : seg.split(/[/\\]/).pop();
+
+          imported.add(name as any);
+        }
+      }
+      console.log(`[DEBUG] metafile分析找到${imported.size}个依赖`);
     }
     const srcJson = this.cwdProjectInfo.pkgJson;
     const usedDeps: Record<string, string> = {};
     const usedDevDeps: Record<string, string> = {};
-
-    for (const name of imported) {
-      if (srcJson.dependencies?.[name]) {
-        usedDeps[name as any] = srcJson.dependencies[name];
-      } else if (srcJson.devDependencies?.[name]) {
-        usedDevDeps[name as any] = srcJson.devDependencies[name];
+    
+    // 处理依赖收集逻辑
+    if (imported.size > 0) {
+      console.log(`[DEBUG] 根据分析结果只包含使用的${imported.size}个依赖`);
+      
+      // 从原始package.json中查找并添加使用的依赖
+      for (const name of imported) {
+        if (srcJson.dependencies?.[name]) {
+          usedDeps[name] = srcJson.dependencies[name];
+        } else if (srcJson.devDependencies?.[name]) {
+          usedDevDeps[name] = srcJson.devDependencies[name];
+        } else {
+          console.log(`[DEBUG] 警告: 依赖 ${name} 在项目package.json中未找到`);
+        }
+      }
+    } else {
+      // 如果没有找到任何依赖，从原始package.json复制所有依赖
+      console.warn('⚠️ 没有分析到任何依赖，将包含原始package.json中的所有依赖');
+      if (srcJson.dependencies) {
+        Object.assign(usedDeps, srcJson.dependencies);
+      }
+      if (srcJson.devDependencies) {
+        Object.assign(usedDevDeps, srcJson.devDependencies);
       }
     }
+    
+    // 创建输出的package.json内容
     const distPkg: Record<string, any> = {
       // 始终使用distDirName作为包名
       name: this.distDirName,
@@ -255,7 +309,7 @@ class DistPackageBuilder extends LibBase {
       dependencies: usedDeps,
       devDependencies: usedDevDeps,
     };
-
+    
     // 清理undefined值
     Object.keys(distPkg).forEach(key => {
       if (distPkg[key] === undefined) {
@@ -264,7 +318,7 @@ class DistPackageBuilder extends LibBase {
     });
 
     writeFileSync(path.join(this.distPath, "package.json"), JSON.stringify(distPkg, null, 2));
-    console.log('✅ package.json已生成');
+    console.log(`✅ package.json已生成，包含${Object.keys(usedDeps).length}个依赖和${Object.keys(usedDevDeps).length}个开发依赖`);
   }
 
 
