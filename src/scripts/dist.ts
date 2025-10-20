@@ -4,8 +4,8 @@ import path from 'path';
 import type { PackageJson } from 'type-fest';
 import { fileURLToPath } from 'url';
 import { LibBase, Appexit } from "./tool.js";
-import { build as tsupBuild, Options } from 'tsup';
-import { build as esbuild, Metafile } from "esbuild"
+import { build as tsupBuild } from 'tsup';
+import { Metafile } from "esbuild"
 export class DistPackageBuilder extends LibBase {
   //入口文件路径
   private entryFilePath!: string

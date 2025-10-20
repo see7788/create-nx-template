@@ -4,7 +4,6 @@ import path from 'path';
 import prompts from 'prompts';
 import { fileURLToPath } from 'url';
 import degit from 'degit';
-import { spawn } from 'child_process';
 import { Appexit, LibBase } from "./tool.js";
 
 export class ProjectTemplateCreator {
