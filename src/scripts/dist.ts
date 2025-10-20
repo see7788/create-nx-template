@@ -31,8 +31,8 @@ export class DistPackageBuilder extends LibBase {
     await this.askEntryFilePath();
 
     // 执行核心构建操作
-    console.log('⚙️3. 抽取js');
-    await this.buildJsFile();
+    // console.log('⚙️3. 抽取js');
+    // await this.buildJsFile();
     console.log('⚙️3. 抽取相关依赖配置生成package.json');
     await this.createPackageJson();
     console.log('\n🚀 完成抽取流程');
@@ -135,7 +135,7 @@ export class DistPackageBuilder extends LibBase {
       bundle: true,
       platform: 'node',
       target: 'node18',
-      format: ['esm'] as const,
+      format: ['esm'],
       sourcemap: true,
       dts: true,
       external: ['node:*'],
@@ -149,9 +149,6 @@ export class DistPackageBuilder extends LibBase {
       // 保留原始错误信息并添加来源标识
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Appexit(`[DEBUG] 构建错误来源: tsup工具\n原始错误: ${errorMessage}`);
-    } finally {
-      // 构建完成提示
-      console.log('✅ JS文件和类型定义构建完成');
     }
   }
 
