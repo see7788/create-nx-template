@@ -1,4 +1,4 @@
-# create-todo
+# create-todo-cli
 
 一个现代化的前端项目模板生成工具，旨在简化项目初始化流程，提供丰富的模板选择和灵活的配置选项。
 
@@ -17,13 +17,13 @@
 
 ```bash
 # 使用pnpm（推荐）
-pnpm create todo
+pnpm create create-todo-cli
 
 # 使用npm
-npm create todo
+npm create create-todo-cli
 
 # 使用yarn
-yarn create todo
+yarn create create-todo-cli
 ```
 
 ## 🔨 使用方法
@@ -34,7 +34,7 @@ yarn create todo
 
 ```bash
 # 创建名为my-app的项目
-pnpm create todo my-app
+pnpm create @see7788/todo my-app
 ```
 
 #### 交互式创建
@@ -42,7 +42,7 @@ pnpm create todo my-app
 不提供项目名称时，工具将进入交互式模式：
 
 ```bash
-pnpm create todo
+pnpm create @see7788/todo
 # 系统将引导您完成项目名称和模板选择
 ```
 
@@ -54,10 +54,10 @@ pnpm create todo
 
 ```bash
 # 完整命令
-pnpm create todo -- --release
+pnpm create @see7788/todo -- --release
 
 # 简写命令
-pnpm create todo -- -r
+pnpm create @see7788/todo -- -r
 ```
 
 ## 📋 支持的模板
@@ -101,7 +101,7 @@ pnpm start
 
 ## 📄 许可证
 
-MIT License © 2024 create-todo 项目团队
+MIT License © 2024 create-todo-cli 项目团队
 
 ## 🐛 问题反馈
 
