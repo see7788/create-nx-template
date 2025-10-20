@@ -34,29 +34,44 @@ export class DistPackageBuilder extends LibBase {
 
   private async askDistDirName(): Promise<void> {
     const prompts = await import('prompts');
-    // 直接提供带默认值的输入框供用户编辑
-    const response = await prompts.default({
-      type: 'text',
-      name: 'distName',
-      message: '请输入输出目录名称 (可直接回车使用默认值)',
-      initial: this.distDirName,
-      validate: (value: string) => {
-        // 验证目录名是否合法（不包含特殊字符）
-        const validNameRegex = /^[a-zA-Z0-9-_]+$/;
-        if (!value.trim()) return '目录名不能为空';
-        if (!validNameRegex.test(value.trim())) return '目录名只能包含字母、数字、- 和 _';
-        return true;
-      }
-    });
+    let isValid = false;
+    let dirName = this.distDirName;
+    
+    while (!isValid) {
+      const response = await prompts.default({
+        type: 'text',
+        name: 'distName',
+        message: '请输入输出目录名称 (可直接回车使用默认值)',
+        initial: dirName,
+        validate: (value: string) => {
+          const trimmedValue = value.trim();
+          const validNameRegex = /^[a-zA-Z0-9-_]+$/;
+          
+          if (!trimmedValue) return '目录名不能为空';
+          if (!validNameRegex.test(trimmedValue)) return '目录名只能包含字母、数字、- 和 _';
+          
+          // 检查是否存在同名目录
+          const targetPath = path.join(this.cwdProjectInfo.cwdPath, trimmedValue);
+          if (fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()) {
+            return `目录名 '${trimmedValue}' 已存在，请选择其他名称`;
+          }
+          
+          return true;
+        }
+      });
 
-    // 用户取消操作
-    if (response.distName === undefined) {
-      const error = new Error('user-cancelled');
-      throw error;
+      // 用户取消操作
+      if (response.distName === undefined) {
+        const error = new Error('user-cancelled');
+        throw error;
+      }
+      
+      dirName = response.distName.trim();
+      isValid = true;
     }
 
     // 更新目录名称
-    this.distDirName = response.distName.trim();
+    this.distDirName = dirName;
     console.log(`📁 输出目录已设置为: ${this.distPath}`);
   }
   private async askEntryFilePath(): Promise<void> {
