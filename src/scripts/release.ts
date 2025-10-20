@@ -30,7 +30,8 @@ export class ReleaseManager extends LibBase {
     // 打印发布链接 - 从版本号中移除时间戳部分用于GitHub标签
     const gitTagVersion = this.nextVersion.split('+')[0];
     console.log(`🔗 GitHub Release: https://github.com/see7788/create-nx-template/releases/tag/v${gitTagVersion}`)
-    console.log(`🔗 NPM 包地址: https://www.npmjs.com/package/create-nx-template/v/${this.nextVersion}`)
+    console.log(`🔗 NPM 包地址: https://www.npmjs.com/package/create-nx-template`)
+    console.log(`📦 当前发布版本: ${this.nextVersion}`)
     // GitHub Release将由GitHub Actions自动创建（见.github/workflows/publish.yml）
   }
 
