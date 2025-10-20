@@ -183,8 +183,7 @@ export class DistPackageBuilder extends LibBase {
         usedDevDeps[name] = rootPkg.devDependencies[name]
       }
     }
-    console.log('used deps:', usedDeps)
-    console.log('used dev deps:', usedDevDeps)
+    console.log({usedDeps,usedDevDeps,imported})
 
     const distPkg = {
       name: rootPkg.name,
