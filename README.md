@@ -34,7 +34,7 @@ yarn create create-todo-cli
 
 ```bash
 # 创建名为my-app的项目
-pnpm create @see7788/todo my-app
+pnpm create create-todo-cli my-app
 ```
 
 #### 交互式创建
@@ -42,7 +42,7 @@ pnpm create @see7788/todo my-app
 不提供项目名称时，工具将进入交互式模式：
 
 ```bash
-pnpm create @see7788/todo
+pnpm create create-todo-cli
 # 系统将引导您完成项目名称和模板选择
 ```
 
@@ -54,10 +54,10 @@ pnpm create @see7788/todo
 
 ```bash
 # 完整命令
-pnpm create @see7788/todo -- --release
+pnpm create create-todo-cli -- --release
 
 # 简写命令
-pnpm create @see7788/todo -- -r
+pnpm create create-todo-cli -- -r
 ```
 
 ## 📋 支持的模板
@@ -86,8 +86,8 @@ pnpm create @see7788/todo -- -r
 
 ```bash
 # 克隆仓库
-git clone https://github.com/see7788/create-todo.git
-cd create-todo
+git clone https://github.com/see7788/create-todo-cli.git
+cd create-todo-cli
 
 # 安装依赖
 pnpm install
