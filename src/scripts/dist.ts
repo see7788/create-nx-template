@@ -128,23 +128,24 @@ export class DistPackageBuilder extends LibBase {
     }
 
     // 构建配置 - 使用tsup简化构建流程
-    const buildOptions: Options = {
-      // 使用相对路径作为入口，避免tsup的路径解析问题
-      entry: [path.basename(this.entryFilePath)],
-      outDir: this.distPath,
-      bundle: true,
-      platform: 'node',
-      target: 'node18',
-      format: ['esm'],
-      sourcemap: true,
-      dts: true,
-      external: ['node:*'],
-      metafile: true,
-      clean: true,
-    };
     try {
       console.log(`[DEBUG] 开始使用tsup构建，入口文件路径: ${this.entryFilePath}`);
-      await tsupBuild(buildOptions);
+      await tsupBuild({
+        entry: {
+          index: path.basename(this.entryFilePath) // 重命名输出文件为index
+        },
+        esbuildOptions: (...c) => console.log(...c),
+        outDir: this.distPath,
+        bundle: true,
+        platform: 'node',
+        target: 'node18',
+        format: ['esm'],
+        sourcemap: true,
+        dts: true,
+        external: ['node:*'],
+        metafile: true,
+        clean: true,
+      });
     } catch (error) {
       // 保留原始错误信息并添加来源标识
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -170,13 +171,13 @@ export class DistPackageBuilder extends LibBase {
       const segs = key.match(/node_modules[/\\](?:\.pnpm[/\\])?(?:@[^/\\]+[/\\][^/\\]+|[^/\\]+)/g)
       if (!segs) continue
       for (const seg of segs) {
-        const libname=seg.split(/[/\\]/).pop()
-        if(libname)imported.add(libname)
+        const libname = seg.split(/[/\\]/).pop()
+        if (libname) imported.add(libname)
       }
     }
     const rootPkg = this.cwdProjectInfo.pkgJson
-    const usedDeps:Record<string,string> = {}
-    const usedDevDeps:Record<string,string> = {}
+    const usedDeps: Record<string, string> = {}
+    const usedDevDeps: Record<string, string> = {}
     for (const name of imported) {
       if (rootPkg.dependencies?.[name]) {
         usedDeps[name] = rootPkg.dependencies[name]
@@ -184,24 +185,24 @@ export class DistPackageBuilder extends LibBase {
         usedDevDeps[name] = rootPkg.devDependencies[name]
       }
     }
-   // console.log({usedDeps,usedDevDeps,imported})
+    // console.log({usedDeps,usedDevDeps,imported})
 
     const distPkg = {
-      name: rootPkg.name,
+      name: this.distDirName,
       version: rootPkg.version,
       description: rootPkg.description,
       keywords: rootPkg.keywords,
       author: rootPkg.author,
       license: rootPkg.license,
       repository: rootPkg.repository,
-      main: './index.js',
-      module: './index.js',
-      types: './index.d.ts',
+      main: './index.mjs',
+      module: './index.mjs',
+      types: './index.d.mts',
       exports: {
         '.': {
-          types: './index.d.ts',
-          import: './index.js',
-          require: './index.js',
+          types: './index.d.mts',
+          import: './index.mjs',
+          require: './index.mjs',
         },
       },
       dependencies: usedDeps,
@@ -209,7 +210,7 @@ export class DistPackageBuilder extends LibBase {
     }
 
     fs.mkdirSync(this.distPath, { recursive: true })
-    fs.writeFileSync(path.join(this.distPath,"package.json"), JSON.stringify(distPkg, null, 2))
+    fs.writeFileSync(path.join(this.distPath, "package.json"), JSON.stringify(distPkg, null, 2))
   }
 }
 
