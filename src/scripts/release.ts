@@ -88,7 +88,7 @@ export class ReleaseManager extends LibBase {
 
     // 3. 生成带时间戳的唯一版本号（符合语义化版本规范，时间戳放在构建元数据部分）
     const timestamp = Date.now();
-    this.nextVersion = `${major}.${minor}.${patch + 1}+${timestamp}`;
+    this.nextVersion = `${major}.${minor}.${patch + 1}`;
 
     // 4. 直接更新package.json
     fs.writeFileSync(this.cwdProjectInfo.pkgPath, JSON.stringify({ ...this.cwdProjectInfo.pkgJson, version: this.nextVersion }, null, 2));
