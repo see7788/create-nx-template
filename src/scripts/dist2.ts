@@ -23,6 +23,7 @@ export default class extends LibBase {
     }
     constructor() {
         super()
+        console.log(this.cwdProjectInfo, "**********")
     }
     async task1(): Promise<void> {
         console.log('\n🚀 开始抽取流程');
