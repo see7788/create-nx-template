@@ -128,172 +128,54 @@ export default class extends LibBase {
         console.log(this.dependencies)
     }
     private async extractToFile(): Promise<void> {
-        const outputPath = path.join(this.distPath, this.entryFilePath);
+        // 确保输出目录存在
+        if (!fs.existsSync(this.distPath)) {
+            fs.mkdirSync(this.distPath, { recursive: true });
+        }
+
         const project = new Project({
             tsConfigFilePath: path.join(this.cwdProjectInfo.pkgPath, 'tsconfig.json'),
             skipFileDependencyResolution: true,
         });
+
         const sourceFile = project.getSourceFileOrThrow(this.entryFilePath);
+
+        // === 1. 收集第三方依赖（非相对导入、非内置模块）===
         sourceFile.getImportDeclarations().forEach(decl => {
             const moduleName = decl.getModuleSpecifierValue();
-            if (!moduleName.startsWith('.') && !this.dependenciesNode.has(moduleName.split('/')[0])) {
-                this.dependencies[moduleName] = '';
+            const packageName = moduleName.split('/')[0];
+
+            if (
+                !moduleName.startsWith('.') &&
+                !this.dependenciesNode.has(packageName)
+            ) {
+                this.dependencies[moduleName] = ''; // 版本留空，后续由用户决定
             }
         });
-        // ✅ 1. 找到任意 IIFE 变量声明：const x = (() => {...})() 或 () => {...}()
-        const iifeDecl = sourceFile.getVariableDeclarations().find((decl) => {
-            const initializer = decl.getInitializer();
-            const isIIFE =
-                initializer?.isKind(SyntaxKind.CallExpression) &&
-                (initializer.getExpression().isKind(SyntaxKind.FunctionExpression) ||
-                    initializer.getExpression().isKind(SyntaxKind.ArrowFunction));
-            return isIIFE;
-        });
 
-        if (!iifeDecl) {
-            throw new Error('❌ 未找到任何 IIFE 变量声明（如 () => {...}()）');
-        }
-
-        const iifeVarName = iifeDecl.getName(); // 动态获取变量名
-
-        // ✅ 2. 自动收集 IIFE 中引用的所有用户定义类型
-        const typeDependencies = new Set<string>();
-
-        // 工具函数：根据名称查找符号（模拟 getSymbolByName）
-        function findSymbolByName(name: string) {
-            return (
-                sourceFile.getTypeAlias(name)?.getSymbol() ||
-                sourceFile.getInterface(name)?.getSymbol() ||
-                sourceFile.getEnum(name)?.getSymbol() ||
-                // 查找标识符（适用于变量/参数中的类型引用）
-                sourceFile
-                    .getDescendantsOfKind(SyntaxKind.Identifier)
-                    .find(id => id.getText() === name)
-                    ?.getSymbol()
-            );
-        }
-
-        // 收集变量声明的类型注解：const x: MyType = ...
-        const typeNode = iifeDecl.getTypeNode();
-        if (typeNode) {
-            const typeName = typeNode.getText();
-            const symbol = findSymbolByName(typeName);
-            if (symbol) {
-                const isUserDefined = symbol.getDeclarations().some(decl =>
-                    decl.isKind(SyntaxKind.TypeAliasDeclaration) ||
-                    decl.isKind(SyntaxKind.InterfaceDeclaration) ||
-                    decl.isKind(SyntaxKind.EnumDeclaration)
-                );
-                if (isUserDefined) {
-                    typeDependencies.add(typeName);
-                }
-            }
-        }
-
-        // 遍历 IIFE 初始化表达式，查找所有 TypeReference（如 ConfigType）
-        iifeDecl.getInitializer()?.forEachChild(function walk(node) {
-            if (node.isKind(SyntaxKind.TypeReference)) {
-                const typeNameNode = node.getTypeName();
-                const typeName = typeNameNode.getText();
-
-                // 排除基础类型
-                if (['string', 'number', 'boolean', 'void', 'any', 'unknown', 'object', 'never'].includes(typeName)) {
-                    return;
-                }
-
-                const symbol = findSymbolByName(typeName);
-                if (symbol) {
-                    const isUserDefined = symbol.getDeclarations().some(decl =>
-                        decl.isKind(SyntaxKind.TypeAliasDeclaration) ||
-                        decl.isKind(SyntaxKind.InterfaceDeclaration) ||
-                        decl.isKind(SyntaxKind.EnumDeclaration)
-                    );
-                    if (isUserDefined) {
-                        typeDependencies.add(typeName);
+        // === 2. 收集 export from 中的第三方依赖 ===
+        sourceFile.getExportDeclarations().forEach(decl => {
+            if (decl.hasModuleSpecifier()) {
+                const moduleName = decl.getModuleSpecifierValue();
+                if (moduleName) {
+                    const packageName = moduleName.split('/')[0];
+                    if (
+                        !moduleName.startsWith('.') &&
+                        !this.dependenciesNode.has(packageName)
+                    ) {
+                        this.dependencies[moduleName] = '';
                     }
                 }
             }
-
-            // 继续遍历子节点
-            node.forEachChild(walk);
         });
 
-        // ✅ 3. 生成所有依赖类型的声明文本
-        const typeDecls = Array.from(typeDependencies)
-            .map(typeName => {
-                const typeAlias = sourceFile.getTypeAlias(typeName);
-                const interfaceDecl = sourceFile.getInterface(typeName);
-                const enumDecl = sourceFile.getEnum(typeName);
-                return (
-                    (typeAlias ? typeAlias.getFullText() : '') ||
-                    (interfaceDecl ? interfaceDecl.getFullText() : '') ||
-                    (enumDecl ? enumDecl.getFullText() : '')
-                );
-            })
-            .filter(Boolean)
-            .join('\n\n');
+        // === 3. 原样读取源文件文本，不做任何修改 ===
+        const originalContent = sourceFile.getFullText();
 
-        // ✅ 4. 判断是否需要 import { resolve } from 'path'
-        const needsPathResolve = iifeDecl.getFullText().includes('resolve(');
-        const importDecls = needsPathResolve ? "import { resolve } from 'path';" : '';
+        // === 4. 写出同名 .ts 文件到 dist 目录 ===
+        const outputPath = path.join(this.distPath, path.basename(this.entryFilePath));
+        fs.writeFileSync(outputPath, originalContent, 'utf8');
 
-        // ✅ 5. 收集所有原始导出语句
-        const exportStatements: string[] = [];
-
-        // named exports: export const, function, class
-        sourceFile.getVariableDeclarations().forEach(decl => {
-            if (decl.isExported()) {
-                exportStatements.push(decl.getFullText());
-            }
-        });
-
-        sourceFile.getFunctions().forEach(fn => {
-            if (fn.isExported()) {
-                exportStatements.push(fn.getFullText());
-            }
-        });
-
-        sourceFile.getClasses().forEach(cls => {
-            if (cls.isExported()) {
-                exportStatements.push(cls.getFullText());
-            }
-        });
-
-        // export default
-        const defaultExport = sourceFile.getDefaultExportSymbol();
-        if (defaultExport) {
-            const declarations = defaultExport.getDeclarations();
-            if (declarations.length > 0) {
-                const node = declarations[0];
-                if (node.isKind(SyntaxKind.FunctionDeclaration)) {
-                    exportStatements.push(node.getFullText());
-                } else {
-                    const name = node.getSymbol()?.getName() || iifeVarName;
-                    exportStatements.push(`export default ${name};`);
-                }
-            }
-        }
-
-        // export { ... } from '...'
-        sourceFile.getExportDeclarations().forEach(decl => {
-            exportStatements.push(decl.getFullText());
-        });
-
-        // ✅ 6. 生成最终文件内容
-        const fileContent = [
-            importDecls,
-            typeDecls,
-            iifeDecl.getFullText(), // 包含 const x = (() => {})() 整个声明
-            ...exportStatements,
-            `export default ${iifeVarName};`
-        ]
-            .filter(Boolean)
-            .join('\n\n')
-            .trim();
-
-        // ✅ 7. 写入文件
-        fs.writeFileSync(outputPath, fileContent, 'utf8');
-        console.log(`🎉 成功生成单文件: ${outputPath}`);
-        // createJson()//你实现一下参数
+        console.log(`📄 已复制文件: ${path.basename(this.entryFilePath)} -> ${outputPath}`);
     }
 }
