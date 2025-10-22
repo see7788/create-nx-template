@@ -80,7 +80,7 @@ import LibBase,{  Appexit } from "./tool.js"
   /**设置下一个版本号*/
   private async nextVersionSet() {
     // 1. 获取当前版本，如果不存在或不规范则使用默认版本0.0.1
-    const currentVersion = this.cwdProjectInfo.pkgJson.version || "0.0.1";
+    const currentVersion = this.cwdProjectInfo.jsonInfo.version || "0.0.1";
 
     // 2. 版本号递增 - 语义化版本规则递增
     const baseVersion = currentVersion.split(/[-+]/)[0];
@@ -91,7 +91,7 @@ import LibBase,{  Appexit } from "./tool.js"
     this.nextVersion = `${major}.${minor}.${patch + 1}`;
 
     // 4. 直接更新package.json
-    fs.writeFileSync(this.cwdProjectInfo.pkgPath, JSON.stringify({ ...this.cwdProjectInfo.pkgJson, version: this.nextVersion }, null, 2));
+    fs.writeFileSync(this.cwdProjectInfo.jsonPath, JSON.stringify({ ...this.cwdProjectInfo.jsonInfo, version: this.nextVersion }, null, 2));
 
     // 5. 提交版本更新
     try {

@@ -16,24 +16,29 @@ export class Appexit extends Error {
         Error.captureStackTrace(this, this.constructor);
     }
 }
-
+interface cwdProjectInfo_t {
+    pkgPath: string;
+    jsonInfo: PackageJson;
+    jsonPath: string,
+    cwdPath: string
+}
 /**基类 - 提供通用的工具方法和项目信息访问*/
 export default class LibBase {
-    protected readonly cwdProjectInfo: { pkgPath: string; pkgJson: PackageJson; cwdPath: string }
+    protected readonly cwdProjectInfo: cwdProjectInfo_t
 
     constructor() {
         this.cwdProjectInfo = this.getcwdProjectInfo()
     }
 
     /**获取当前工作目录的项目信息 - 递归查找package.json*/
-    private getcwdProjectInfo(): { pkgPath: string; pkgJson: PackageJson; cwdPath: string } {
+    private getcwdProjectInfo(): cwdProjectInfo_t {
         let dir = process.cwd();
         while (dir !== path.parse(dir).root) {
-            const pkgPath = path.join(dir, 'package.json');
-            if (fs.existsSync(pkgPath)) {
-                const pkgContent = fs.readFileSync(pkgPath, 'utf-8');
-                const pkgJson: PackageJson = JSON.parse(pkgContent);
-                return { pkgPath, pkgJson, cwdPath: dir };
+            const jsonPath = path.join(dir, 'package.json');
+            if (fs.existsSync(jsonPath)) {
+                const pkgContent = fs.readFileSync(jsonPath, 'utf-8');
+                const jsonInfo: PackageJson = JSON.parse(pkgContent);
+                return { pkgPath: dir, cwdPath: process.cwd(), jsonPath: jsonPath, jsonInfo };
             }
             dir = path.dirname(dir);
         }

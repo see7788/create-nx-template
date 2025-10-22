@@ -165,7 +165,7 @@ class DistPackageBuilder extends LibBase {
         if (libname) imported.add(libname)
       }
     }
-    const rootPkg = this.cwdProjectInfo.pkgJson
+    const rootPkg = this.cwdProjectInfo.jsonInfo
     const usedDeps: Record<string, string> = {}
     const usedDevDeps: Record<string, string> = {}
     for (const name of imported) {
