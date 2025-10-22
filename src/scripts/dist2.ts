@@ -129,7 +129,7 @@ export default class extends LibBase {
     private async extractToFile(): Promise<void> {
         const outputPath = path.join(this.distPath, this.entryFilePath);
         const project = new Project({
-            tsConfigFilePath: path.join(this.cwdProjectInfo.cwdPath, 'tsconfig.json'),
+            tsConfigFilePath: path.join(this.cwdProjectInfo.pkgPath, 'tsconfig.json'),
             skipFileDependencyResolution: true,
         });
         const sourceFile = project.getSourceFileOrThrow(this.entryFilePath);
