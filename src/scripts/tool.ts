@@ -20,28 +20,26 @@ export class Appexit extends Error {
 /**基类 - 提供通用的工具方法和项目信息访问*/
 export default class LibBase {
     protected readonly cwdProjectInfo: { pkgPath: string; pkgJson: PackageJson; cwdPath: string }
-    
+
     constructor() {
         this.cwdProjectInfo = this.getcwdProjectInfo()
     }
-    
+
     /**获取当前工作目录的项目信息 - 递归查找package.json*/
     private getcwdProjectInfo(): { pkgPath: string; pkgJson: PackageJson; cwdPath: string } {
-        // 保存初始工作目录，确保后续操作始终使用同一个路径
-        const cwdPath = process.cwd();
-        let dir = cwdPath;
+        let dir = process.cwd();
         while (dir !== path.parse(dir).root) {
             const pkgPath = path.join(dir, 'package.json');
             if (fs.existsSync(pkgPath)) {
                 const pkgContent = fs.readFileSync(pkgPath, 'utf-8');
                 const pkgJson: PackageJson = JSON.parse(pkgContent);
-                return { pkgPath, pkgJson, cwdPath };
+                return { pkgPath, pkgJson, cwdPath: dir };
             }
             dir = path.dirname(dir);
         }
         throw new Appexit('不存在 package.json 文件');
     }
-    
+
     /**执行Git命令并处理错误 - 统一Git操作的错误处理（工具方法）*/
     protected runGitCommand(cmd: string, options?: ExecSyncOptionsWithStringEncoding, throwOnError: boolean = true): string | null {
         try {
@@ -61,7 +59,7 @@ export default class LibBase {
             return null;
         }
     }
-    
+
     /**执行交互式命令 - 用于需要用户交互的命令（工具方法）*/
     protected runInteractiveCommand(cmd: string, throwOnError: boolean = true): void {
         try {
@@ -78,7 +76,7 @@ export default class LibBase {
             // 非致命错误，静默失败
         }
     }
-    
+
     /**执行通用命令并返回结果 - 支持非致命错误模式（工具方法）*/
     protected runCommand(cmd: string, options?: ExecSyncOptionsWithStringEncoding, throwOnError: boolean = true): string | null {
         try {
@@ -130,7 +128,7 @@ export default class LibBase {
 
         // 如果提供了初始路径，直接使用它
         let currentPath = initialPath || process.cwd();
-        
+
         // 如果没有初始路径，让用户选择磁盘/根目录
         if (!initialPath) {
             console.log('\n🔍 第1步：选择磁盘驱动器');
@@ -231,8 +229,8 @@ export default class LibBase {
                     title: item.isDirectory
                         ? `📁 ${item.name}${this.isProjectDirectory(item.path) ? ' (项目目录)' : ''}`
                         : isTargetFile
-                        ? `🎯 ${item.name} (目标文件)`
-                        : `📄 ${item.name}`,
+                            ? `🎯 ${item.name} (目标文件)`
+                            : `📄 ${item.name}`,
                     value: item.path,
                     disabled: !item.isDirectory && !isTargetFile // 禁用非目标文件类型
                 };
@@ -285,10 +283,10 @@ export default class LibBase {
                     console.log(`📂 已进入目录: ${path.basename(currentPath)}`);
                 } else {
                     // 选择了文件，检查是否为目标文件类型
-                    const isTargetFile = fileExtensions.some(ext => 
+                    const isTargetFile = fileExtensions.some(ext =>
                         selectionResponse.selection.toLowerCase().endsWith(ext)
                     );
-                    
+
                     if (isTargetFile) {
                         // 确认选择
                         const confirmResponse = await prompts.default({
