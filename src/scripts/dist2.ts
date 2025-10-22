@@ -102,7 +102,7 @@ export default class extends LibBase {
                     // 检查是否存在同名目录
                     const targetPath = path.join(this.cwdProjectInfo.cwdPath, trimmedValue);
                     if (fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()) {
-                        return `目录名 '${trimmedValue}' 已存在，请选择其他名称`;
+                        return `${targetPath} 已存在，请选择其他名称`;
                     } else {
                         fs.mkdirSync(targetPath, { recursive: true });
                     }
