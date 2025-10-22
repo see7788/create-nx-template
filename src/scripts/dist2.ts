@@ -128,11 +128,6 @@ export default class extends LibBase {
         console.log(this.dependencies)
     }
     private async extractToFile(): Promise<void> {
-        // 确保输出目录存在
-        if (!fs.existsSync(this.distPath)) {
-            fs.mkdirSync(this.distPath, { recursive: true });
-        }
-
         const project = new Project({
             tsConfigFilePath: path.join(this.cwdProjectInfo.pkgPath, 'tsconfig.json'),
             skipFileDependencyResolution: true,
@@ -140,42 +135,130 @@ export default class extends LibBase {
 
         const sourceFile = project.getSourceFileOrThrow(this.entryFilePath);
 
-        // === 1. 收集第三方依赖（非相对导入、非内置模块）===
-        sourceFile.getImportDeclarations().forEach(decl => {
-            const moduleName = decl.getModuleSpecifierValue();
-            const packageName = moduleName.split('/')[0];
+        // 存储已处理的文件路径（绝对路径），防止重复
+        const emittedFiles = new Set<string>();
+        // 记录每个源文件到输出路径的映射
+        const fileToOutputPath = new Map<string, string>();
 
-            if (
-                !moduleName.startsWith('.') &&
-                !this.dependenciesNode.has(packageName)
-            ) {
-                this.dependencies[moduleName] = ''; // 版本留空，后续由用户决定
-            }
-        });
+        // 项目根目录，用于计算相对路径
+        const projectRoot = this.cwdProjectInfo.pkgPath;
 
-        // === 2. 收集 export from 中的第三方依赖 ===
-        sourceFile.getExportDeclarations().forEach(decl => {
-            if (decl.hasModuleSpecifier()) {
-                const moduleName = decl.getModuleSpecifierValue();
-                if (moduleName) {
-                    const packageName = moduleName.split('/')[0];
-                    if (
-                        !moduleName.startsWith('.') &&
-                        !this.dependenciesNode.has(packageName)
-                    ) {
-                        this.dependencies[moduleName] = '';
+        /**
+         * 将文件路径转为相对于项目根的 POSIX 路径（用作唯一键）
+         */
+        const toProjectRelative = (filePath: string) => {
+            return path.relative(projectRoot, filePath).replace(/\\/g, '/');
+        };
+
+        /**
+         * 根据当前文件和模块名，解析出目标 .ts 文件路径
+         */
+        const resolveImportPath = (fromDir: string, moduleSpecifier: string): string | undefined => {
+            // 处理相对路径
+            if (moduleSpecifier.startsWith('.')) {
+                let targetPath = path.resolve(fromDir, moduleSpecifier);
+
+                // 尝试添加 .ts 后缀
+                if (!targetPath.endsWith('.ts') && !targetPath.endsWith('.tsx')) {
+                    if (fs.existsSync(targetPath + '.ts')) {
+                        targetPath = targetPath + '.ts';
+                    } else if (fs.existsSync(targetPath + '.tsx')) {
+                        targetPath = targetPath + '.tsx';
                     }
                 }
+
+                if (fs.existsSync(targetPath)) {
+                    return targetPath;
+                }
+            } else {
+                // 第三方模块：尝试从 node_modules 解析主入口
+                // 简化处理：只记录依赖，不复制
+                return undefined;
             }
-        });
+            return undefined;
+        };
 
-        // === 3. 原样读取源文件文本，不做任何修改 ===
-        const originalContent = sourceFile.getFullText();
+        /**
+         * 递归处理文件及其依赖
+         */
+        const processFile = (file: SourceFile) => {
+            const filePath = file.getFilePath();
+            const relativeInProject = toProjectRelative(filePath);
 
-        // === 4. 写出同名 .ts 文件到 dist 目录 ===
-        const outputPath = path.join(this.distPath, path.basename(this.entryFilePath));
-        fs.writeFileSync(outputPath, originalContent, 'utf8');
+            if (emittedFiles.has(relativeInProject)) return;
+            emittedFiles.add(relativeInProject);
 
-        console.log(`📄 已复制文件: ${path.basename(this.entryFilePath)} -> ${outputPath}`);
+            // 计算输出路径
+            const outputPath = path.join(this.distPath, relativeInProject);
+            fileToOutputPath.set(filePath, outputPath);
+
+            const dirName = path.dirname(filePath);
+
+            // 分析所有 import
+            file.getImportDeclarations().forEach(decl => {
+                const moduleName = decl.getModuleSpecifierValue();
+
+                if (!moduleName.startsWith('.')) {
+                    // 第三方依赖
+                    const packageName = moduleName.split('/')[0];
+                    if (!this.dependenciesNode.has(packageName)) {
+                        this.dependencies[moduleName] = '';
+                    }
+                    return;
+                }
+
+                // 解析相对路径导入
+                const resolvedPath = resolveImportPath(dirName, moduleName);
+                if (resolvedPath) {
+                    let importedFile = project.getSourceFile(resolvedPath);
+                    if (!importedFile) {
+                        // 如果未加载，手动添加（但不触发类型检查）
+                        importedFile = project.addSourceFileAtPathIfExists(resolvedPath);
+                    }
+                    if (importedFile) {
+                        processFile(importedFile);
+                    }
+                }
+            });
+
+            // 分析 export ... from "..."
+            file.getExportDeclarations().forEach(decl => {
+                if (!decl.hasModuleSpecifier()) return;
+                const moduleName = decl.getModuleSpecifierValue();
+                if (moduleName) {
+                    if (!moduleName.startsWith('.')) {
+                        const packageName = moduleName.split('/')[0];
+                        if (!this.dependenciesNode.has(packageName)) {
+                            this.dependencies[moduleName] = '';
+                        }
+                        return;
+                    }
+                    const resolvedPath = resolveImportPath(dirName, moduleName);
+                    if (resolvedPath) {
+                        let exportedFile = project.getSourceFile(resolvedPath);
+                        if (!exportedFile) {
+                            exportedFile = project.addSourceFileAtPathIfExists(resolvedPath);
+                        }
+                        if (exportedFile) {
+                            processFile(exportedFile);
+                        }
+                    }
+                }
+            });
+        };
+
+        // 开始递归处理
+        processFile(sourceFile);
+
+        // 写入所有文件
+        for (const [filePath, outputPath] of fileToOutputPath) {
+            const file = project.getSourceFileOrThrow(filePath);
+            const content = file.getFullText();
+            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+            fs.writeFileSync(outputPath, content, 'utf8');
+            console.log(`📄 已复制: ${toProjectRelative(filePath)} -> ${path.relative(this.distPath, outputPath)}`);
+        }
+
+        console.log(`✅ 共复制 ${emittedFiles.size} 个文件`);
     }
 }
