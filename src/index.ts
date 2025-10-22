@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import prompts from 'prompts';
-import { ProjectTemplateCreator } from './scripts/template.js';
-import { ReleaseManager } from './scripts/release.js';
-import { DistPackageBuilder } from './scripts/dist.js';
+import ProjectTemplateCreator from './scripts/template.js';
+import ReleaseManager from './scripts/release.js';
+import DistPackageBuilder from './scripts/dist2.js';
 import { Appexit } from './scripts/tool.js';
 import pkg from '../package.json' with { type: 'json' };
 
@@ -10,13 +10,13 @@ import pkg from '../package.json' with { type: 'json' };
 class CLI {
   /**命令行参数*/
   private readonly args: string[];
-  
+
   /**构造函数 - 初始化命令行参数*/
   constructor() {
     this.args = process.argv.slice(2);
     console.log("pkg.version:", pkg.version);
   }
-  
+
   /**显示帮助信息*/
   private showHelp(): void {
     console.log(`
@@ -30,7 +30,7 @@ class CLI {
       `);
     process.exit(0);
   }
-  
+
   /**处理命令行参数 - 编排工具类的使用方式*/
   private async handleCommand(cmd: string, param: string): Promise<void> {
     switch (cmd) {
@@ -59,7 +59,7 @@ class CLI {
         await this.showInteractiveMenu();
     }
   }
-  
+
   /**显示交互式菜单 - 用户友好的操作选择界面*/
   private async showInteractiveMenu(): Promise<void> {
     const response = await prompts({
@@ -90,7 +90,7 @@ class CLI {
         process.exit(0);
     }
   }
-  
+
   /**执行主程序逻辑 - 入口编排的核心方法*/
   public async run(): Promise<void> {
     try {

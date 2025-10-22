@@ -3,10 +3,10 @@ import * as fs from 'node:fs';
 import path from 'path';
 import type { PackageJson } from 'type-fest';
 import { fileURLToPath } from 'url';
-import { LibBase, Appexit } from "./tool.js";
+import LibBase, { Appexit } from "./tool.js";
 import { build as tsupBuild } from 'tsup';
 import { Metafile } from "esbuild"
-export class DistPackageBuilder extends LibBase {
+class DistPackageBuilder extends LibBase {
   //入口文件路径
   private entryFilePath!: string
   //产物目录名称
@@ -37,7 +37,7 @@ export class DistPackageBuilder extends LibBase {
     const prompts = await import('prompts');
     let isValid = false;
     let dirName = this.distDirName;
-    
+
     while (!isValid) {
       const response = await prompts.default({
         type: 'text',
@@ -47,16 +47,16 @@ export class DistPackageBuilder extends LibBase {
         validate: (value: string) => {
           const trimmedValue = value.trim();
           const validNameRegex = /^[a-zA-Z0-9-_]+$/;
-          
+
           if (!trimmedValue) return '目录名不能为空';
           if (!validNameRegex.test(trimmedValue)) return '目录名只能包含字母、数字、- 和 _';
-          
+
           // 检查是否存在同名目录
           const targetPath = path.join(this.cwdProjectInfo.cwdPath, trimmedValue);
           if (fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()) {
             return `目录名 '${trimmedValue}' 已存在，请选择其他名称`;
           }
-          
+
           return true;
         }
       });
@@ -66,7 +66,7 @@ export class DistPackageBuilder extends LibBase {
         const error = new Error('user-cancelled');
         throw error;
       }
-      
+
       dirName = response.distName.trim();
       isValid = true;
     }
@@ -182,7 +182,7 @@ export class DistPackageBuilder extends LibBase {
       author: rootPkg.author || '',
       license: rootPkg.license || 'MIT',
       repository: rootPkg.repository || { type: 'git', url: '' },
-      type:'module',
+      type: 'module',
       main: './index.mjs',
       module: './index.mjs',
       types: './index.d.mts',
@@ -205,3 +205,4 @@ export class DistPackageBuilder extends LibBase {
 if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])) {
   new DistPackageBuilder().task1();
 }
+export default DistPackageBuilder

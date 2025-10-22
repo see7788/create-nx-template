@@ -18,7 +18,7 @@ export class Appexit extends Error {
 }
 
 /**基类 - 提供通用的工具方法和项目信息访问*/
-export class LibBase {
+export default class LibBase {
     protected readonly cwdProjectInfo: { pkgPath: string; pkgJson: PackageJson; cwdPath: string }
     
     constructor() {

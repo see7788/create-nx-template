@@ -4,9 +4,9 @@ import path from 'path';
 import prompts from 'prompts';
 import { fileURLToPath } from 'url';
 import degit from 'degit';
-import { Appexit, LibBase } from "./tool.js";
-
-export class ProjectTemplateCreator {
+import { Appexit } from "./tool.js";
+import DistPackageBuilder from "./dist2.js"
+ class ProjectTemplateCreator {
   /**模板列表*/
   private readonly templates: [name: string, remark: string][] = [
     ["createFromLocalProject", "从本地项目抽取"],
@@ -438,7 +438,6 @@ export class ProjectTemplateCreator {
   private async runDistCommand(): Promise<void> {
     try {
       // 直接使用DistPackageBuilder类，避免子进程调用带来的路径和递归问题
-      const { DistPackageBuilder } = await import('./dist.js');
       const distBuilder = new DistPackageBuilder();
       await distBuilder.task1();
     } catch (error) {
@@ -551,3 +550,5 @@ export class ProjectTemplateCreator {
 if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])) {
   new ProjectTemplateCreator().task1();
 }
+
+export default ProjectTemplateCreator

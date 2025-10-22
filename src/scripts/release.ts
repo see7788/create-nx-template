@@ -3,10 +3,10 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { LibBase, Appexit } from "./tool.js"
+import LibBase,{  Appexit } from "./tool.js"
 
 /**发布管理器类 - 采用流畅异步模式的发布流程管理*/
-export class ReleaseManager extends LibBase {
+ class ReleaseManager extends LibBase {
   nextVersion!: string
   constructor() {
     super()
@@ -117,3 +117,4 @@ export class ReleaseManager extends LibBase {
 if (path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])) {
  new ReleaseManager().task1()
 }
+export default ReleaseManager
