@@ -10,7 +10,7 @@ import prompts from "prompts"
 export default class extends LibBase {
     //入口文件路径
     private entryFilePath!: string
-    //产物目录名称
+    //产物目录名称，作为项目名称
     private distDirName: string = "dist";
     private dependencies: Set<string> = new Set()
     private get distPath() {
@@ -18,7 +18,6 @@ export default class extends LibBase {
     }
     constructor() {
         super()
-        console.log(this.cwdProjectInfo, "**********")
     }
     async task1(): Promise<void> {
         console.log('\n🚀 开始抽取流程');
@@ -35,6 +34,48 @@ export default class extends LibBase {
         console.log('⚙️4. 生成package.json');
         await this.createJson();
         console.log('\n🚀 完成抽取流程');
+    }
+    private async askDistDirName(): Promise<void> {
+        let isValid = false;
+        let dirName = this.distDirName;
+
+        while (!isValid) {
+            const response = await prompts({
+                type: 'text',
+                name: 'distName',
+                message: '请输入目录名称 (同时是作为package.name，可直接回车使用默认值)',
+                initial: dirName,
+                validate: (value: string) => {
+                    const trimmedValue = value.trim();
+                    const validNameRegex = /^[a-zA-Z0-9-_]+$/;
+
+                    if (!trimmedValue) return '目录名不能为空';
+                    if (!validNameRegex.test(trimmedValue)) return '目录名只能包含字母、数字、- 和 _';
+
+                    // 检查是否存在同名目录
+                    const targetPath = path.join(this.cwdProjectInfo.cwdPath, trimmedValue);
+                    if (fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()) {
+                        return `${targetPath} 已存在，请选择其他名称`;
+                    } else {
+                        fs.mkdirSync(targetPath, { recursive: true });
+                    }
+                    return true;
+                }
+            });
+
+            // 用户取消操作
+            if (response.distName === undefined) {
+                const error = new Error('user-cancelled');
+                throw error;
+            }
+
+            dirName = response.distName.trim();
+            isValid = true;
+        }
+
+        // 更新目录名称
+        this.distDirName = dirName;
+        console.log(`📁 输出目录已设置为: ${this.distPath}`);
     }
     private async askEntryFilePath(): Promise<void> {
         // 使用当前执行命令时的工作目录
@@ -79,50 +120,15 @@ export default class extends LibBase {
             throw new Appexit('未找到有效的入口文件');
         }
     }
-    private async askDistDirName(): Promise<void> {
-        let isValid = false;
-        let dirName = this.distDirName;
-
-        while (!isValid) {
-            const response = await prompts({
-                type: 'text',
-                name: 'distName',
-                message: '请输入输出目录名称 (可直接回车使用默认值)',
-                initial: dirName,
-                validate: (value: string) => {
-                    const trimmedValue = value.trim();
-                    const validNameRegex = /^[a-zA-Z0-9-_]+$/;
-
-                    if (!trimmedValue) return '目录名不能为空';
-                    if (!validNameRegex.test(trimmedValue)) return '目录名只能包含字母、数字、- 和 _';
-
-                    // 检查是否存在同名目录
-                    const targetPath = path.join(this.cwdProjectInfo.cwdPath, trimmedValue);
-                    if (fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()) {
-                        return `${targetPath} 已存在，请选择其他名称`;
-                    } else {
-                        fs.mkdirSync(targetPath, { recursive: true });
-                    }
-                    return true;
-                }
-            });
-
-            // 用户取消操作
-            if (response.distName === undefined) {
-                const error = new Error('user-cancelled');
-                throw error;
-            }
-
-            dirName = response.distName.trim();
-            isValid = true;
-        }
-
-        // 更新目录名称
-        this.distDirName = dirName;
-        console.log(`📁 输出目录已设置为: ${this.distPath}`);
-    }
     private async createJson() {
-        console.log(this.dependencies)
+        const dependencies = { ...this.cwdProjectInfo.jsonInfo.dependencies, ...this.cwdProjectInfo.jsonInfo.devDependencies }
+       const result:Record<string,string>={}
+        for (const name of this.dependencies) {
+            if (dependencies[name]) {
+                result[name] = dependencies[name];
+            }
+        }
+        console.log({result})
     }
     private async extractToFile(): Promise<void> {
         const project = new Project({
@@ -173,9 +179,7 @@ export default class extends LibBase {
             return printer.printFile(sf);
         };
 
-        /**
-         * Tree Shaking：移除未使用的导入/变量/函数等
-         */
+        /**Tree Shaking：移除未使用的导入/变量/函数等*/
         const treeShaking = (f: SourceFile) => {
             // 1. 命名导入
             f.getImportDeclarations().forEach(decl => {
