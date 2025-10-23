@@ -137,33 +137,58 @@ export default class extends LibBase {
         });
 
         const sourceFile = project.getSourceFileOrThrow(this.entryFilePath);
+        const entryExt = path.extname(this.entryFilePath);
+        const entryBasename = path.basename(this.entryFilePath, entryExt);
+        const outputDirForEntry = path.join(this.distPath, entryBasename);
+
+        // 创建输出目录
+        fs.mkdirSync(outputDirForEntry, { recursive: true });
 
         const emittedFileNames = new Set<string>();
         const processedFiles = new Set<string>();
 
-        /** 使用 TypeScript 缘码器 API 移除注释 */
-        const removeCommentsFromText = (code: string, filePath: string): string => {
-            const sourceFile = ts.createSourceFile(
-                filePath,
-                code,
-                ts.ScriptTarget.Latest,
-                false,
-                ts.ScriptKind.TS
-            );
+        // ========== 工具函数（内聚在方法内，便于维护） ==========
 
-            const printer = ts.createPrinter({ removeComments: true });
-            return printer.printFile(sourceFile);
+        /**
+         * 解析相对模块路径（支持 ./ ../ index 文件 扩展名补全）
+         */
+        const resolveModulePath = (specifier: string, fromDir: string): string | null => {
+            if (!specifier.startsWith('.')) return null;
+            let resolved = path.resolve(fromDir, specifier);
+            if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
+
+            for (const ext of ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']) {
+                const indexPath = path.join(resolved, `index${ext}`);
+                if (fs.existsSync(indexPath)) return indexPath;
+            }
+
+            for (const ext of ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']) {
+                const fullPath = resolved + ext;
+                if (fs.existsSync(fullPath)) return fullPath;
+            }
+
+            return null;
         };
 
-        /** Tree Shaking：删除未使用的代码 */
-        const doTreeShaking = (f: SourceFile) => {
-            // 1. 删除未使用的命名导入
+        /**
+         * 使用 ts.printer 移除代码中的注释
+         */
+        const removeComments = (code: string, filePath: string): string => {
+            const sf = ts.createSourceFile(filePath, code, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+            const printer = ts.createPrinter({ removeComments: true });
+            return printer.printFile(sf);
+        };
+
+        /**
+         * Tree Shaking：移除未使用的导入/变量/函数/类等
+         */
+        const treeShaking = (f: SourceFile) => {
+            // 1. 命名导入
             f.getImportDeclarations().forEach(decl => {
                 const namedImports = decl.getNamedImports();
                 const unused = namedImports.filter(imp => {
                     const name = imp.getName();
-                    const refs = f.getDescendantsOfKind(SyntaxKind.Identifier)
-                        .filter(id => id.getText() === name);
+                    const refs = f.getDescendantsOfKind(SyntaxKind.Identifier).filter(id => id.getText() === name);
                     return refs.length === 0;
                 });
                 unused.forEach(imp => imp.remove());
@@ -172,14 +197,13 @@ export default class extends LibBase {
                 }
             });
 
-            // 2. 删除未使用的变量声明
+            // 2. 变量声明
             f.getVariableStatements().forEach(stmt => {
                 if (stmt.isExported()) return;
                 const declarations = stmt.getDeclarations();
                 const toKeep = declarations.filter(decl => {
                     const name = decl.getName();
-                    const refs = f.getDescendantsOfKind(SyntaxKind.Identifier)
-                        .filter(id => id.getText() === name);
+                    const refs = f.getDescendantsOfKind(SyntaxKind.Identifier).filter(id => id.getText() === name);
                     return refs.length > 1;
                 });
                 if (toKeep.length === 0) {
@@ -192,80 +216,54 @@ export default class extends LibBase {
                 }
             });
 
-            // 3. 删除未使用的函数
+            // 3. 函数
             f.getFunctions().forEach(fn => {
                 if (fn.isExported()) return;
                 const name = fn.getName();
                 if (!name) return;
-                const refs = f.getDescendantsOfKind(SyntaxKind.Identifier)
-                    .filter(id => id.getText() === name);
+                const refs = f.getDescendantsOfKind(SyntaxKind.Identifier).filter(id => id.getText() === name);
                 if (refs.length <= 1) fn.remove();
             });
 
-            // 4. 删除未使用的类
+            // 4. 类
             f.getClasses().forEach(cls => {
                 if (cls.isExported()) return;
                 const name = cls.getName();
                 if (!name) return;
-                const refs = f.getDescendantsOfKind(SyntaxKind.Identifier)
-                    .filter(id => id.getText() === name);
+                const refs = f.getDescendantsOfKind(SyntaxKind.Identifier).filter(id => id.getText() === name);
                 if (refs.length <= 1) cls.remove();
             });
 
-            // 5. 删除未使用的类型别名
+            // 5. 类型别名
             f.getTypeAliases().forEach(ta => {
                 if (ta.isExported()) return;
                 const name = ta.getName();
-                const refs = f.getDescendantsOfKind(SyntaxKind.Identifier)
-                    .filter(id => id.getText() === name);
+                const refs = f.getDescendantsOfKind(SyntaxKind.Identifier).filter(id => id.getText() === name);
                 if (refs.length <= 1) ta.remove();
             });
 
-            // 6. 删除未使用的接口
+            // 6. 接口
             f.getInterfaces().forEach(iface => {
                 if (iface.isExported()) return;
                 const name = iface.getName();
                 if (!name) return;
-                const refs = f.getDescendantsOfKind(SyntaxKind.Identifier)
-                    .filter(id => id.getText() === name);
+                const refs = f.getDescendantsOfKind(SyntaxKind.Identifier).filter(id => id.getText() === name);
                 if (refs.length <= 1) iface.remove();
             });
         };
 
         /**
-         * 解析模块路径，支持 ./ ../ / 和 index 文件
+         * 生成唯一输出文件名（防同名冲突）
          */
-        const resolveModulePath = (specifier: string, fromDir: string): string | null => {
-            if (!specifier.startsWith('.')) return null;
-
-            let resolved = path.resolve(fromDir, specifier);
-
-            if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
-                return resolved;
-            }
-
-            // 尝试 index 文件
-            for (const ext of ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']) {
-                const indexPath = path.join(resolved, `index${ext}`);
-                if (fs.existsSync(indexPath)) return indexPath;
-            }
-
-            // 尝试添加扩展名
-            for (const ext of ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']) {
-                const fullPath = resolved + ext;
-                if (fs.existsSync(fullPath)) return fullPath;
-            }
-
-            return null;
+        const getOutputFileName = (filePath: string): string => {
+            if (filePath === this.entryFilePath) return `index${entryExt}`;
+            const relative = path.relative(this.cwdProjectInfo.pkgPath, filePath);
+            const ext = path.extname(relative);
+            return relative.replace(/\\/g, '/').replace(/[\\/]/g, '_').replace(ext, '') + ext;
         };
 
-        // ✅ 获取入口文件基本信息
-        const entryBasename = path.basename(this.entryFilePath, path.extname(this.entryFilePath));
-        const entryExt = path.extname(this.entryFilePath); // '.ts' 或 '.js'
-        const outputDirForEntry = path.join(this.distPath, entryBasename); // dist/入口文件名/
-
         /**
-         * 处理单个文件
+         * 处理单个文件：重写导入、shaking、输出
          */
         const processFile = (file: SourceFile) => {
             const filePath = file.getFilePath();
@@ -273,8 +271,7 @@ export default class extends LibBase {
             processedFiles.add(filePath);
 
             const isEntryPoint = filePath === this.entryFilePath;
-            const relativeToProject = path.relative(this.cwdProjectInfo.pkgPath, filePath);
-            const fileName = isEntryPoint ? `index${entryExt}` : path.basename(filePath);
+            const fileName = getOutputFileName(filePath);
             const outputPath = path.join(outputDirForEntry, fileName);
 
             if (emittedFileNames.has(fileName)) {
@@ -282,139 +279,95 @@ export default class extends LibBase {
                 return;
             }
 
-            // ✅ 重写相对导入路径
+            const dirPath = path.dirname(filePath);
+
+            // 重写 import './xxx'
             file.getImportDeclarations().forEach(decl => {
                 const specifier = decl.getModuleSpecifierValue();
                 if (!specifier || !specifier.startsWith('.')) return;
-
-                const dirPath = path.dirname(filePath);
                 const resolvedPath = resolveModulePath(specifier, dirPath);
                 if (!resolvedPath) {
-                    console.warn(`⚠️ 未找到模块，跳过导入: ${specifier} (from ${filePath})`);
+                    console.warn(`⚠️ 未找到模块，跳过导入: ${specifier}`);
                     return;
                 }
-
-                // 计算新导入路径：相对于 outputDirForEntry 的相对路径
-                const importedFileName = resolvedPath === this.entryFilePath
-                    ? 'index' + path.extname(resolvedPath)
-                    : path.basename(resolvedPath);
-
+                const importedFileName = resolvedPath === this.entryFilePath ? `index${entryExt}` : getOutputFileName(resolvedPath);
                 const relativeImport = path.relative(path.dirname(outputPath), path.join(outputDirForEntry, importedFileName));
-                const finalImportPath = relativeImport.startsWith('.')
-                    ? relativeImport
-                    : './' + relativeImport;
-
-                decl.setModuleSpecifier(finalImportPath);
+                decl.setModuleSpecifier(relativeImport.startsWith('.') ? relativeImport : `./${relativeImport}`);
             });
 
-            // ✅ 重写 export from './xxx'
+            // 重写 export from './xxx'
             file.getExportDeclarations().forEach(decl => {
                 if (!decl.hasModuleSpecifier()) return;
                 const specifier = decl.getModuleSpecifierValue();
                 if (!specifier || !specifier.startsWith('.')) return;
-
-                const dirPath = path.dirname(filePath);
                 const resolvedPath = resolveModulePath(specifier, dirPath);
                 if (!resolvedPath) {
-                    console.warn(`⚠️ 未找到导出模块，跳过: ${specifier} (from ${filePath})`);
+                    console.warn(`⚠️ 未找到导出模块，跳过: ${specifier}`);
                     return;
                 }
-
-                const exportedFileName = resolvedPath === this.entryFilePath
-                    ? 'index' + path.extname(resolvedPath)
-                    : path.basename(resolvedPath);
-
+                const exportedFileName = resolvedPath === this.entryFilePath ? `index${entryExt}` : getOutputFileName(resolvedPath);
                 const relativeImport = path.relative(path.dirname(outputPath), path.join(outputDirForEntry, exportedFileName));
-                const finalImportPath = relativeImport.startsWith('.')
-                    ? relativeImport
-                    : './' + relativeImport;
-
-                decl.setModuleSpecifier(finalImportPath);
+                decl.setModuleSpecifier(relativeImport.startsWith('.') ? relativeImport : `./${relativeImport}`);
             });
 
-            // 收集第三方依赖
-            file.getImportDeclarations().forEach(decl => {
-                const moduleName = decl.getModuleSpecifierValue();
-                if (moduleName && !moduleName.startsWith('.')) {
-                    const packageName = moduleName.split('/')[0];
-                    if (!this.dependenciesNode.has(packageName)) {
-                        this.dependencies[moduleName] = '';
+            // 收集外部依赖
+            [...file.getImportDeclarations(), ...file.getExportDeclarations()]
+                .map(decl => decl.getModuleSpecifierValue())
+                .filter((mod): mod is string => !!mod && !mod.startsWith('.'))
+                .forEach(mod => {
+                    const pkg = mod.split('/')[0];
+                    if (!this.dependenciesNode.has(pkg)) {
+                        this.dependencies[mod] = '';
                     }
-                }
-            });
-
-            file.getExportDeclarations().forEach(decl => {
-                const moduleName = decl.getModuleSpecifierValue();
-                if (moduleName && !moduleName.startsWith('.')) {
-                    const packageName = moduleName.split('/')[0];
-                    if (!this.dependenciesNode.has(packageName)) {
-                        this.dependencies[moduleName] = '';
-                    }
-                }
-            });
+                });
 
             // Tree Shaking
-            doTreeShaking(file);
-
-            // 获取并清理代码
-            const modifiedCode = file.getFullText();
-            const cleanedCode = removeCommentsFromText(modifiedCode, filePath);
+            treeShaking(file);
 
             // 输出文件
+            const code = removeComments(file.getFullText(), filePath);
             fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-            fs.writeFileSync(outputPath, cleanedCode, 'utf8');
+            fs.writeFileSync(outputPath, code, 'utf8');
             emittedFileNames.add(fileName);
 
             const displayPath = path.relative(this.distPath, outputPath);
-            console.log(`📄 已输出: ${displayPath} (${relativeToProject})`);
+            console.log(`📄 已输出: ${displayPath}`);
         };
 
         /**
-         * 深度优先遍历依赖图
+         * 深度遍历依赖图
          */
         const traverse = (file: SourceFile) => {
             const dirPath = path.dirname(file.getFilePath());
 
-            // 处理 import './xxx'
+            // 收集 import './xxx'
             file.getImportDeclarations()
                 .map(decl => decl.getModuleSpecifierValue())
-                .filter((s): s is string => !!s)
-                .filter(s => s.startsWith('.'))
-                .forEach(specifier => {
-                    const resolvedPath = resolveModulePath(specifier, dirPath);
-                    if (resolvedPath) {
-                        const depFile = project.addSourceFileAtPath(resolvedPath);
-                        traverse(depFile);
-                    } else {
-                        console.warn(`⚠️ 未找到模块: ${specifier} (from ${file.getFilePath()})`);
-                    }
+                .filter((s): s is string => !!s && s.startsWith('.'))
+                .map(specifier => resolveModulePath(specifier, dirPath))
+                .filter((p): p is string => !!p)
+                .forEach(resolvedPath => {
+                    const depFile = project.addSourceFileAtPath(resolvedPath);
+                    traverse(depFile);
                 });
 
-            // 处理 export from './xxx'
+            // 收集 export from './xxx'
             file.getExportDeclarations()
                 .filter(decl => decl.hasModuleSpecifier())
                 .map(decl => decl.getModuleSpecifierValue())
-                .filter((s): s is string => !!s)
-                .filter(s => s.startsWith('.'))
-                .forEach(specifier => {
-                    const resolvedPath = resolveModulePath(specifier, dirPath);
-                    if (resolvedPath) {
-                        const depFile = project.addSourceFileAtPath(resolvedPath);
-                        traverse(depFile);
-                    } else {
-                        console.warn(`⚠️ 未找到导出模块: ${specifier} (from ${file.getFilePath()})`);
-                    }
+                .filter((s): s is string => !!s && s.startsWith('.'))
+                .map(specifier => resolveModulePath(specifier, dirPath))
+                .filter((p): p is string => !!p)
+                .forEach(resolvedPath => {
+                    const depFile = project.addSourceFileAtPath(resolvedPath);
+                    traverse(depFile);
                 });
 
             processFile(file);
         };
 
-        // 创建输出目录
-        fs.mkdirSync(outputDirForEntry, { recursive: true });
-
-        // 开始处理
+        // ========== 主流程 ==========
         traverse(sourceFile);
-
         console.log(`✅ 抽取完成，共输出 ${emittedFileNames.size} 个文件`);
         console.log(`📁 结构路径: ${entryBasename}/index${entryExt}`);
     }
