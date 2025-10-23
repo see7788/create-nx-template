@@ -123,62 +123,58 @@ export default class extends LibBase {
     private async createJson() {
         console.log(this.dependencies)
     }
-    /**
-    * 提取入口文件及其依赖，扁平化输出到指定目录，并收集第三方依赖名
-    */
     public async extractToFile(): Promise<void> {
-        // ✅ 1. 确定输出根目录（假设 this.outputRoot 已在构造函数中设置）
         const outputDir = this.distPath;
 
-        // ✅ 3. 使用 ts-morph 解析项目
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+
+        this.dependencies = {};
+
         const project = new Project();
         const sourceFilesToProcess: SourceFile[] = [project.addSourceFileAtPath(this.entryFilePath)];
-        const processedFiles = new Set<string>(); // 防止重复处理
+        const processedFiles = new Set<string>();
 
-        // ✅ 4. 遍历所有依赖文件（BFS）
+        // 建立：原文件路径 → 输出文件名 的映射
+        const fileMap = new Map<string, string>();
+
+        // 1️⃣ 收集所有依赖文件，并建立映射
         while (sourceFilesToProcess.length > 0) {
             const file = sourceFilesToProcess.shift()!;
             const filePath = file.getFilePath();
 
-            // 跳过已处理的文件
             if (processedFiles.has(filePath)) continue;
             processedFiles.add(filePath);
 
-            // 收集所有非相对路径的导入模块（如 lodash, @org/name, zustand 等）
+            // 收集第三方依赖
             file.getImportDeclarations()
                 .map(decl => decl.getModuleSpecifierValue())
                 .filter((mod): mod is string => !!mod)
                 .filter(mod => !mod.startsWith('.') && !path.isAbsolute(mod))
                 .forEach(mod => {
-                    // 提取包名：@scope/name 或 name
                     const pkgName = mod.startsWith('@')
                         ? mod.split('/').slice(0, 2).join('/')
                         : mod.split('/')[0];
-                    this.dependencies[pkgName] = ''; // 值留空，后续可填充版本号
+                    this.dependencies[pkgName] = '';
                 });
 
-            // 处理相对导入的文件（递归）
+            // 递归处理相对导入
             file.getImportDeclarations()
                 .map(decl => decl.getModuleSpecifierValue())
                 .filter((mod): mod is string => !!mod)
-                .filter(mod => mod.startsWith('.')) // 只处理相对路径
+                .filter(mod => mod.startsWith('.'))
                 .forEach(relativePath => {
                     try {
-                        // 解析相对路径为绝对路径
-                        const dir = path.dirname(filePath);
-                        const resolved = path.resolve(dir, relativePath);
+                        const resolved = path.resolve(path.dirname(filePath), relativePath);
                         let actualPath = '';
-
-                        // 尝试常见扩展名
                         for (const ext of ['.ts', '.tsx', '.js']) {
-                            const fullPath = resolved + ext;
-                            if (fs.existsSync(fullPath)) {
-                                actualPath = fullPath;
+                            const p = resolved + ext;
+                            if (fs.existsSync(p)) {
+                                actualPath = p;
                                 break;
                             }
                         }
-
-                        // 尝试 index 文件
                         if (!actualPath) {
                             for (const ext of ['.ts', '.tsx', '.js']) {
                                 const indexPath = path.join(resolved, `index${ext}`);
@@ -188,44 +184,74 @@ export default class extends LibBase {
                                 }
                             }
                         }
-
-                        // 如果找到文件且未处理过，加入队列
-                        if (actualPath && fs.existsSync(actualPath) && !processedFiles.has(actualPath)) {
+                        if (actualPath && !processedFiles.has(actualPath)) {
                             const depFile = project.getSourceFile(actualPath) || project.addSourceFileAtPath(actualPath);
-                            if (depFile) {
-                                sourceFilesToProcess.push(depFile);
-                            }
+                            if (depFile) sourceFilesToProcess.push(depFile);
                         }
-                    } catch {
-                        // 解析失败则跳过（如类型声明、未安装包）
-                    }
+                    } catch { }
                 });
+
+            // 构建输出文件名映射
+            const relativeInProject = path.relative(this.cwdProjectInfo.pkgPath, filePath);
+            const ext = path.extname(relativeInProject);
+            const flatFileName = filePath === this.entryFilePath
+                ? `index${ext}`
+                : relativeInProject.replace(/[\\/]/g, '_');
+            fileMap.set(filePath, flatFileName);
         }
 
-        // ✅ 5. 写出所有源文件（扁平化命名）
+        // 2️⃣ 重写所有 import 路径
+        project.getSourceFiles().forEach(file => {
+            const filePath = file.getFilePath();
+            if (!fileMap.has(filePath)) return;
+
+            file.getImportDeclarations().forEach(importDecl => {
+                const moduleSpecifier = importDecl.getModuleSpecifierValue();
+                if (!moduleSpecifier || !moduleSpecifier.startsWith('.')) return;
+
+                try {
+                    // 解析相对导入的原目标文件
+                    const fromDir = path.dirname(filePath);
+                    const toPath = path.resolve(fromDir, moduleSpecifier);
+                    const normalizedToPath = path.normalize(toPath);
+
+                    // 查找目标文件对应的输出文件名
+                    let targetOutputName = '';
+                    for (const [original, flatName] of fileMap.entries()) {
+                        if (path.normalize(original) === normalizedToPath) {
+                            targetOutputName = flatName;
+                            break;
+                        }
+                    }
+
+                    if (!targetOutputName) return;
+
+                    // 计算新的相对路径（从当前输出文件到目标输出文件）
+                    // 当前文件的输出名
+                    const currentOutputName = fileMap.get(filePath)!;
+                    // 因为都在同一目录，所以直接用文件名即可
+                    const newModuleSpecifier = path.basename(targetOutputName, path.extname(targetOutputName));
+
+                    // 🔁 重写 import 语句
+                    importDecl.setModuleSpecifier(newModuleSpecifier);
+                } catch (err) {
+                    console.warn(`⚠️ 无法重写导入: ${moduleSpecifier} in ${filePath}`);
+                }
+            });
+        });
+
+        // 3️⃣ 写出所有文件
         processedFiles.clear();
         project.getSourceFiles().forEach(file => {
             const filePath = file.getFilePath();
-
-            // 跳过 node_modules 和已处理或不在项目中的文件
-            if (filePath.includes('node_modules') || processedFiles.has(filePath)) return;
+            if (!fileMap.has(filePath) || processedFiles.has(filePath)) return;
             processedFiles.add(filePath);
 
-            // 生成扁平化文件名：src/utils/helper.ts → src_utils_helper.ts
-            const relativeToProject = path.relative(this.cwdProjectInfo.pkgPath, filePath);
-            const ext = path.extname(relativeToProject);
-            const baseName = relativeToProject.replace(/[\\/]/g, '_').replace(ext, '');
-
-            // 入口文件特殊处理：输出为 index.ts
-            let outputFileName: string;
-            if (path.normalize(filePath) === path.normalize(this.entryFilePath)) {
-                outputFileName = `index${ext}`;
-            } else {
-                outputFileName = `${baseName}${ext}`;
-            }
-
+            const outputFileName = fileMap.get(filePath)!;
             const outputPath = path.join(outputDir, outputFileName);
-            fs.writeFileSync(outputPath, file.getFullText(), 'utf-8');
+            const content = file.getFullText();
+
+            fs.writeFileSync(outputPath, content, 'utf-8');
         });
     }
 }
