@@ -264,6 +264,7 @@ export default class extends LibBase {
          * 生成输出文件名
          */
         const getOutputFileName = (filePath: string): string => {
+            console.log(filePath,this.entryFilePath)
             if (filePath === this.entryFilePath) {
                 return `index${entryExt}`;
             }
