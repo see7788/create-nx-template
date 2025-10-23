@@ -2,6 +2,7 @@
 import { Project, SyntaxKind, SourceFile } from "ts-morph";
 import path from 'path';
 import type { PackageJson } from 'type-fest';
+import crypto from 'crypto'
 import fs from "fs"
 import ts from "typescript"
 import LibBase, { Appexit } from "./tool.js";
@@ -275,7 +276,12 @@ export default class extends LibBase {
 
             return null;
         };
-
+        const getHash = (str: string): string => {
+            return crypto.createHash('sha256')
+                .update(str, 'utf8')
+                .digest('hex')
+                .slice(0, 12); // ✅ 12 hex 字符 = 48 bit，足够安全
+        };
         /**
          * 处理单个文件：收集依赖 + Tree Shaking + 输出
          */
@@ -284,68 +290,64 @@ export default class extends LibBase {
             if (processedFiles.has(filePath)) return;
             processedFiles.add(filePath);
 
-            // 生成安全文件名（扁平化）
+            // 1. 生成唯一安全文件名：basename_hash.ext
+            const ext = path.extname(filePath);
+            const baseName = path.basename(filePath, ext);
             const relativePath = path.relative(this.cwdProjectInfo.pkgPath, filePath);
-            const safeName = relativePath
-                .replace(/^(\.\.\/)+/, '')
-                .replace(/[\\/]/g, '_')
-                .replace(/\.(tsx?|jsx?)$/, '.ts');
+            const fileHash = getHash(relativePath);
+            const safeName = `${baseName}_${fileHash}${ext}`; // e.g., index_a1b2c3d4e5f6.ts
 
             if (emittedFileNames.has(safeName)) {
-                console.warn(`⚠️ 文件名重复，跳过: ${safeName}`);
+                console.warn(`⚠️ 文件已存在，跳过: ${safeName}`);
                 return;
             }
 
-            // -------------------------------
-            // ✅ 新增：重写所有相对导入和导出
-            // -------------------------------
-
-            // 1. 重写 import './xxx' -> import 'xxx_flattened_name'
+            // 2. 重写所有相对导入：import './xxx' → import './xxx_hash'
             file.getImportDeclarations().forEach(decl => {
                 const specifier = decl.getModuleSpecifierValue();
-                if (!specifier) return;
+                if (!specifier || !specifier.startsWith('.')) return; // 仅处理相对路径
 
-                if (specifier.startsWith('.')) {
-                    // 是相对路径，需要解析并重写
-                    const dirPath = path.dirname(filePath);
-                    const resolvedPath = resolveModulePath(specifier, dirPath);
-                    if (resolvedPath) {
-                        const resolvedRel = path.relative(this.cwdProjectInfo.pkgPath, resolvedPath);
-                        const resolvedSafeName = resolvedRel
-                            .replace(/^(\.\.\/)+/, '')
-                            .replace(/[\\/]/g, '_')
-                            .replace(/\.(tsx?|jsx?)$/, '.ts');
-
-                        decl.setModuleSpecifier(resolvedSafeName); // ✅ 重写为扁平化后的文件名
-                    }
+                const dirPath = path.dirname(filePath);
+                const resolvedPath = resolveModulePath(specifier, dirPath);
+                if (!resolvedPath) {
+                    console.warn(`⚠️ 未找到模块，跳过导入: ${specifier} (from ${filePath})`);
+                    return;
                 }
-                // 第三方依赖保留原样
+
+                // 生成被导入文件的唯一名称
+                const depRelative = path.relative(this.cwdProjectInfo.pkgPath, resolvedPath);
+                const depHash = getHash(depRelative);
+                const depBase = path.basename(resolvedPath, path.extname(resolvedPath));
+                const depExt = path.extname(resolvedPath);
+                const depSafeName = `${depBase}_${depHash}${depExt}`;
+
+                // ✅ 重写为相对导入：./basename_hash.ext
+                decl.setModuleSpecifier(`./${depSafeName}`);
             });
 
-            // 2. 重写 export from './xxx'
+            // 3. 重写 export from './xxx'
             file.getExportDeclarations().forEach(decl => {
                 if (!decl.hasModuleSpecifier()) return;
                 const specifier = decl.getModuleSpecifierValue();
-                if (!specifier) return;
+                if (!specifier || !specifier.startsWith('.')) return;
 
-                if (specifier.startsWith('.')) {
-                    const dirPath = path.dirname(filePath);
-                    const resolvedPath = resolveModulePath(specifier, dirPath);
-                    if (resolvedPath) {
-                        const resolvedRel = path.relative(this.cwdProjectInfo.pkgPath, resolvedPath);
-                        const resolvedSafeName = resolvedRel
-                            .replace(/^(\.\.\/)+/, '')
-                            .replace(/[\\/]/g, '_')
-                            .replace(/\.(tsx?|jsx?)$/, '.ts');
-
-                        decl.setModuleSpecifier(resolvedSafeName); // ✅ 重写
-                    }
+                const dirPath = path.dirname(filePath);
+                const resolvedPath = resolveModulePath(specifier, dirPath);
+                if (!resolvedPath) {
+                    console.warn(`⚠️ 未找到导出模块，跳过: ${specifier} (from ${filePath})`);
+                    return;
                 }
+
+                const depRelative = path.relative(this.cwdProjectInfo.pkgPath, resolvedPath);
+                const depHash = getHash(depRelative);
+                const depBase = path.basename(resolvedPath, path.extname(resolvedPath));
+                const depExt = path.extname(resolvedPath);
+                const depSafeName = `${depBase}_${depHash}${depExt}`;
+
+                decl.setModuleSpecifier(`./${depSafeName}`);
             });
 
-            // -------------------------------
-            // 收集第三方依赖（不变）
-            // -------------------------------
+            // 4. 收集第三方依赖（用于后续分析）
             file.getImportDeclarations().forEach(decl => {
                 const moduleName = decl.getModuleSpecifierValue();
                 if (moduleName && !moduleName.startsWith('.')) {
@@ -366,19 +368,22 @@ export default class extends LibBase {
                 }
             });
 
-            // -------------------------------
-            // Tree Shaking & 输出
-            // -------------------------------
+            // 5. Tree Shaking：删除未使用的代码
             doTreeShaking(file);
 
+            // 6. 获取处理后代码
             const modifiedCode = file.getFullText();
+
+            // 7. 使用 TypeScript 移除注释
             const cleanedCode = removeCommentsFromText(modifiedCode, filePath);
 
+            // 8. 输出文件
             const outputPath = path.join(this.distPath, safeName);
             fs.mkdirSync(path.dirname(outputPath), { recursive: true });
             fs.writeFileSync(outputPath, cleanedCode, 'utf8');
             emittedFileNames.add(safeName);
-            console.log(`📄 已输出: ${safeName}`);
+
+            console.log(`📄 已输出: ${safeName} (${relativePath})`);
         };
 
         /**
