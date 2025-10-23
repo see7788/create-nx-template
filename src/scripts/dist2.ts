@@ -341,8 +341,8 @@ export default class extends LibBase {
                 const depRelative = path.relative(this.cwdProjectInfo.pkgPath, resolvedPath);
                 const depHash = getHash(depRelative);
                 const depBase = path.basename(resolvedPath, path.extname(resolvedPath));
-                const depExt = path.extname(resolvedPath);
-                const depSafeName = `${depBase}_${depHash}${depExt}`;
+                // const depExt = path.extname(resolvedPath);
+                const depSafeName = `${depBase}_${depHash}`;
 
                 decl.setModuleSpecifier(`./${depSafeName}`);
             });
