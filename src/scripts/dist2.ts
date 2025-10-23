@@ -3,6 +3,7 @@ import { Project, SyntaxKind, SourceFile } from "ts-morph";
 import path from 'path';
 import type { PackageJson } from 'type-fest';
 import fs from "fs"
+import ts from "typescript"
 import LibBase, { Appexit } from "./tool.js";
 import prompts from "prompts"
 export default class extends LibBase {
@@ -128,11 +129,6 @@ export default class extends LibBase {
         console.log(this.dependencies)
     }
     private async extractToFile(): Promise<void> {
-        const { Project, SyntaxKind } = await import('ts-morph');
-        const ts = await import('typescript');
-        const path = await import('path');
-        const fs = await import('fs');
-
         const project = new Project({
             tsConfigFilePath: path.join(this.cwdProjectInfo.pkgPath, 'tsconfig.json'),
             skipFileDependencyResolution: true,
@@ -239,6 +235,48 @@ export default class extends LibBase {
         };
 
         /**
+         * 解析相对模块路径，支持 / 路径和 index.ts/index.tsx
+         */
+        const resolveModulePath = (specifier: string, fromDir: string): string | null => {
+            let resolved = path.resolve(fromDir, specifier);
+
+            // 如果已有扩展名，直接检查
+            if (/\.(ts|tsx|js|jsx)$/.test(resolved)) {
+                return fs.existsSync(resolved) ? resolved : null;
+            }
+
+            // 尝试 index 文件
+            const indexCandidates = [
+                path.join(resolved, 'index.ts'),
+                path.join(resolved, 'index.tsx'),
+                path.join(resolved, 'index.js'),
+                path.join(resolved, 'index.jsx'),
+            ];
+
+            for (const candidate of indexCandidates) {
+                if (fs.existsSync(candidate)) {
+                    return candidate;
+                }
+            }
+
+            // 尝试同名文件
+            const extCandidates = [
+                resolved + '.ts',
+                resolved + '.tsx',
+                resolved + '.js',
+                resolved + '.jsx',
+            ];
+
+            for (const candidate of extCandidates) {
+                if (fs.existsSync(candidate)) {
+                    return candidate;
+                }
+            }
+
+            return null;
+        };
+
+        /**
          * 处理单个文件：收集依赖 + Tree Shaking + 输出
          */
         const processFile = (file: SourceFile) => {
@@ -246,13 +284,19 @@ export default class extends LibBase {
             if (processedFiles.has(filePath)) return;
             processedFiles.add(filePath);
 
-            const fileName = path.basename(filePath);
-            if (emittedFileNames.has(fileName)) {
-                console.warn(`⚠️ 文件名冲突，跳过: ${fileName}`);
+            // 生成唯一文件名：使用相对路径转下划线，避免 index.ts 冲突
+            const relativePath = path.relative(this.cwdProjectInfo.pkgPath, filePath);
+            const safeName = relativePath
+                .replace(/^(\.\.\/)+/, '') // 去掉 ../
+                .replace(/[\\/]/g, '_')   // 路径分隔符转 _
+                .replace(/\.(tsx?|jsx?)$/, '.ts'); // 统一输出为 .ts
+
+            if (emittedFileNames.has(safeName)) {
+                console.warn(`⚠️ 文件名重复，跳过: ${safeName} (原: ${relativePath})`);
                 return;
             }
 
-            // 收集第三方依赖（import 'react' / export from 'lodash'）
+            // 收集第三方依赖
             file.getImportDeclarations().forEach(decl => {
                 const moduleName = decl.getModuleSpecifierValue();
                 if (moduleName && !moduleName.startsWith('.')) {
@@ -276,18 +320,18 @@ export default class extends LibBase {
             // 执行 Tree Shaking
             doTreeShaking(file);
 
-            // 获取处理后的代码
+            // 获取处理后代码
             const modifiedCode = file.getFullText();
 
-            // 使用 TypeScript 移除注释
+            // 移除注释
             const cleanedCode = removeCommentsFromText(modifiedCode, filePath);
 
             // 输出文件
-            const outputPath = path.join(this.distPath, fileName);
+            const outputPath = path.join(this.distPath, safeName);
             fs.mkdirSync(path.dirname(outputPath), { recursive: true });
             fs.writeFileSync(outputPath, cleanedCode, 'utf8');
-            emittedFileNames.add(fileName);
-            console.log(`📄 已输出: ${fileName}`);
+            emittedFileNames.add(safeName);
+            console.log(`📄 已输出: ${safeName}`);
         };
 
         /**
@@ -296,63 +340,45 @@ export default class extends LibBase {
         const traverse = (file: SourceFile) => {
             const dirPath = path.dirname(file.getFilePath());
 
-            // 处理 import './xxx'
+            // 处理 import './xxx' 和 import '../anyipc/public'
             file.getImportDeclarations()
-                .map(decl => decl.getModuleSpecifierValue()) // string | undefined
-                .filter((specifier): specifier is string => !!specifier) // 过滤并类型收窄
+                .map(decl => decl.getModuleSpecifierValue())
+                .filter((specifier): specifier is string => !!specifier)
                 .filter(specifier => specifier.startsWith('.'))
                 .forEach(specifier => {
-                    let resolved = path.resolve(dirPath, specifier);
-                    // 补全扩展名
-                    if (!resolved.endsWith('.ts') && !resolved.endsWith('.tsx')) {
-                        if (fs.existsSync(resolved + '.ts')) {
-                            resolved += '.ts';
-                        } else if (fs.existsSync(resolved + '.tsx')) {
-                            resolved += '.tsx';
-                        } else if (fs.existsSync(path.join(resolved, 'index.ts'))) {
-                            resolved = path.join(resolved, 'index.ts');
-                        } else {
-                            return; // 文件不存在，跳过
-                        }
-                    }
-                    if (fs.existsSync(resolved)) {
-                        const depFile = project.addSourceFileAtPath(resolved);
+                    const resolvedPath = resolveModulePath(specifier, dirPath);
+                    if (resolvedPath) {
+                        const depFile = project.addSourceFileAtPath(resolvedPath);
                         traverse(depFile);
+                    } else {
+                        console.warn(`⚠️ 未找到模块: ${specifier} (from ${file.getFilePath()})`);
                     }
                 });
 
             // 处理 export from './xxx'
             file.getExportDeclarations()
                 .filter(decl => decl.hasModuleSpecifier())
-                .map(decl => decl.getModuleSpecifierValue()) // string | undefined
-                .filter((specifier): specifier is string => !!specifier) // 类型守卫
+                .map(decl => decl.getModuleSpecifierValue())
+                .filter((specifier): specifier is string => !!specifier)
                 .filter(specifier => specifier.startsWith('.'))
                 .forEach(specifier => {
-                    let resolved = path.resolve(dirPath, specifier);
-                    if (!resolved.endsWith('.ts') && !resolved.endsWith('.tsx')) {
-                        if (fs.existsSync(resolved + '.ts')) {
-                            resolved += '.ts';
-                        } else if (fs.existsSync(resolved + '.tsx')) {
-                            resolved += '.tsx';
-                        } else if (fs.existsSync(path.join(resolved, 'index.ts'))) {
-                            resolved = path.join(resolved, 'index.ts');
-                        } else {
-                            return;
-                        }
-                    }
-                    if (fs.existsSync(resolved)) {
-                        const depFile = project.addSourceFileAtPath(resolved);
+                    const resolvedPath = resolveModulePath(specifier, dirPath);
+                    if (resolvedPath) {
+                        const depFile = project.addSourceFileAtPath(resolvedPath);
                         traverse(depFile);
+                    } else {
+                        console.warn(`⚠️ 未找到导出模块: ${specifier} (from ${file.getFilePath()})`);
                     }
                 });
 
-            // 最后处理当前文件
+            // 处理当前文件
             processFile(file);
         };
 
-        // 从入口文件开始遍历
+        // 开始遍历
         traverse(sourceFile);
 
         console.log(`✅ 扁平化输出完成，共 ${emittedFileNames.size} 个文件（已去注释、Tree Shaking）`);
     }
+
 }
