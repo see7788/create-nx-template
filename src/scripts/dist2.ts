@@ -12,6 +12,13 @@ export default class extends LibBase {
     private entryFilePath!: string
     //产物目录名称
     private distDirName: string = "dist";
+    private dependenciesNode = new Set([
+        'assert', 'buffer', 'child_process', 'cluster', 'console', 'constants',
+        'crypto', 'dgram', 'dns', 'domain', 'events', 'fs', 'http', 'https',
+        'module', 'net', 'os', 'path', 'os', 'punycode', 'querystring', 'readline',
+        'repl', 'stream', 'string_decoder', 'sys', 'timers', 'tls', 'tty',
+        'url', 'util', 'vm', 'zlib', 'process', 'v8', 'worker_threads'
+    ]);
     private dependencies: Record<string, string> = {}
     private get distPath() {
         return path.join(this.cwdProjectInfo.cwdPath, this.distDirName)
@@ -123,137 +130,253 @@ export default class extends LibBase {
     private async createJson() {
         console.log(this.dependencies)
     }
-    async extractToFile(): Promise<void> {
-        const entryPath = this.entryFilePath;
-        const outputDir: string = this.distPath
-        const project = new Project();
-        const entry = project.addSourceFileAtPath(path.resolve(entryPath));
-        const filesToProcess: SourceFile[] = [entry];
+    private async extractToFile(): Promise<void> {
+        const project = new Project({
+            tsConfigFilePath: path.join(this.cwdProjectInfo.pkgPath, 'tsconfig.json'),
+            skipFileDependencyResolution: true,
+        });
+
+        const sourceFile = project.getSourceFileOrThrow(this.entryFilePath);
+        const entryExt = path.extname(this.entryFilePath);
+        const entryBasename = path.basename(this.entryFilePath, entryExt);
+        const outputDirForEntry = path.join(this.distPath, entryBasename);
+
+        // 创建输出目录
+        fs.mkdirSync(outputDirForEntry, { recursive: true });
+
+        const emittedFileNames = new Set<string>();
         const processedFiles = new Set<string>();
-        const fileToFlatName = new Map<string, string>();
-        const posix = (s: string) => s.replace(/\\/g, '/');
 
-        // 收集所有依赖文件
-        while (filesToProcess.length > 0) {
-            const file = filesToProcess.shift()!;
-            const filePath = posix(file.getFilePath());
-            if (processedFiles.has(filePath)) continue;
-            processedFiles.add(filePath);
+        // ========== 工具函数 ==========
 
-            for (const imp of file.getImportDeclarations()) {
-                const moduleSpecifier = imp.getModuleSpecifierValue();
-                if (!moduleSpecifier?.startsWith('.')) continue;
+        /**
+         * 解析相对模块路径（支持 ./ ../ index 文件 扩展名补全）
+         */
+        const resolveModulePath = (specifier: string, fromDir: string): string | null => {
+            if (!specifier.startsWith('.')) return null;
+            let resolved = path.resolve(fromDir, specifier);
+            if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
 
-                try {
-                    const resolved = path.resolve(path.dirname(filePath), moduleSpecifier);
-                    let targetPath = '';
-                    for (const ext of ['.ts', '.tsx']) {
-                        const fp = resolved + ext;
-                        if (fs.existsSync(fp)) {
-                            targetPath = posix(fp);
-                            break;
-                        }
-                        const indexPath = path.join(resolved, `index${ext}`);
-                        if (fs.existsSync(indexPath)) {
-                            targetPath = posix(indexPath);
-                            break;
-                        }
-                    }
-                    if (targetPath && !processedFiles.has(targetPath)) {
-                        const depFile = project.getSourceFile(targetPath) || project.addSourceFileAtPath(targetPath);
-                        filesToProcess.push(depFile);
-                    }
-                } catch { }
+            for (const ext of ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']) {
+                const indexPath = path.join(resolved, `index${ext}`);
+                if (fs.existsSync(indexPath)) return indexPath;
             }
 
-            const isEntry = filePath === posix(entryPath);
-            const flatName = isEntry ? 'index.ts' : filePath.split('/').slice(-3).join('_');
-            fileToFlatName.set(filePath, flatName);
-        }
-
-        // 移除未使用的变量/函数（基于类型检查）
-        await project.emit({ emitOnlyDtsFiles: false });
-        const diagnostics = project.getPreEmitDiagnostics();
-        const unusedSymbols = new Set<string>();
-        for (const diag of diagnostics) {
-            const msg = diag.getMessageText();
-            if (typeof msg === 'string' && (msg.includes('is declared but its value is never read') ||
-                msg.includes('is assigned a value but never used'))) {
-                const file = diag.getSourceFile();
-                if (!file) continue;
-                const start = diag.getStart();
-                if (start) {
-                    const node = file.getDescendantAtPos(start);
-                    if (node) {
-                        const nameNode = node.getChildSyntaxListOrThrow().getChildren()[0];
-                        if (nameNode) {
-                            unusedSymbols.add(`${file.getFilePath()}:${nameNode.getPos()}`);
-                        }
-                    }
-                }
+            for (const ext of ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']) {
+                const fullPath = resolved + ext;
+                if (fs.existsSync(fullPath)) return fullPath;
             }
-        }
 
-        // 清理每个文件：删除注释 + 删除未使用符号
-        for (const file of project.getSourceFiles()) {
-            const filePath = posix(file.getFilePath());
-            if (!fileToFlatName.has(filePath)) continue;
+            return null;
+        };
 
-            // 删除所有注释
-            file.getDescendants().forEach(n => {
-                if (n.isKind(154) || n.isKind(155)) { // SyntaxKind.SingleLineCommentTrivia, MultiLineCommentTrivia
-                    n.replaceWithText('');
+        /**
+         * 使用 ts.printer 移除代码中的注释
+         */
+        const removeComments = (code: string, filePath: string): string => {
+            const sf = ts.createSourceFile(filePath, code, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+            const printer = ts.createPrinter({ removeComments: true });
+            return printer.printFile(sf);
+        };
+
+        /**
+         * Tree Shaking：移除未使用的导入/变量/函数等
+         */
+        const treeShaking = (f: SourceFile) => {
+            // 1. 命名导入
+            f.getImportDeclarations().forEach(decl => {
+                const namedImports = decl.getNamedImports();
+                const unused = namedImports.filter(imp => {
+                    const name = imp.getName();
+                    const refs = f.getDescendantsOfKind(SyntaxKind.Identifier).filter(id => id.getText() === name);
+                    return refs.length === 0;
+                });
+                unused.forEach(imp => imp.remove());
+                if (!decl.getNamedImports().length && !decl.getDefaultImport() && !decl.getNamespaceImport()) {
+                    decl.remove();
                 }
             });
 
-            // // 删除未使用的变量/函数
-            // file.getVariableDeclarations().forEach(decl => {
-            //     const pos = decl.getNameNode().getPos();
-            //     if (unusedSymbols.has(`${filePath}:${pos}`)) {
-            //         const parent = decl.getParentOrThrow();
-            //         if (parent.isKind(163)) { // VariableStatement
-            //             parent.remove();
-            //         }
-            //     }
-            // });
-            // file.getFunctionDeclarations().forEach(fn => {
-            //     const pos = fn.getNameNode()?.getPos();
-            //     if (pos && unusedSymbols.has(`${filePath}:${pos}`)) {
-            //         fn.remove();
-            //     }
-            // });
-        }
+            // 2. 变量声明
+            f.getVariableStatements().forEach(stmt => {
+                if (stmt.isExported()) return;
+                const declarations = stmt.getDeclarations();
+                const toKeep = declarations.filter(decl => {
+                    const name = decl.getName();
+                    const refs = f.getDescendantsOfKind(SyntaxKind.Identifier).filter(id => id.getText() === name);
+                    return refs.length > 1;
+                });
+                if (toKeep.length === 0) {
+                    stmt.remove();
+                } else if (toKeep.length < declarations.length) {
+                    const names = toKeep.map(d => d.getName()).join(', ');
+                    const type = toKeep[0].getTypeNode() ? `: ${toKeep[0].getTypeNode()?.getText()}` : '';
+                    const init = toKeep[0].getInitializer() ? ` = ${toKeep[0].getInitializer()?.getText()}` : '';
+                    stmt.replaceWithText(`const ${names}${type}${init};`);
+                }
+            });
 
-        // 重写导入路径
-        for (const file of project.getSourceFiles()) {
-            const filePath = posix(file.getFilePath());
-            if (!fileToFlatName.has(filePath)) continue;
+            // 3. 函数
+            f.getFunctions().forEach(fn => {
+                if (fn.isExported()) return;
+                const name = fn.getName();
+                if (!name) return;
+                const refs = f.getDescendantsOfKind(SyntaxKind.Identifier).filter(id => id.getText() === name);
+                if (refs.length <= 1) fn.remove();
+            });
 
-            for (const imp of file.getImportDeclarations()) {
-                const moduleSpecifier = imp.getModuleSpecifierValue();
-                if (!moduleSpecifier?.startsWith('.')) continue;
+            // 4. 类
+            f.getClasses().forEach(cls => {
+                if (cls.isExported()) return;
+                const name = cls.getName();
+                if (!name) return;
+                const refs = f.getDescendantsOfKind(SyntaxKind.Identifier).filter(id => id.getText() === name);
+                if (refs.length <= 1) cls.remove();
+            });
 
-                try {
-                    const resolved = posix(path.resolve(path.dirname(filePath), moduleSpecifier));
-                    const targetFile = [...fileToFlatName.keys()].find(k => k === resolved);
-                    if (targetFile) {
-                        const flatName = fileToFlatName.get(targetFile)!;
-                        const importPath = './' + path.basename(flatName, path.extname(flatName));
-                        imp.setModuleSpecifier(importPath);
-                    }
-                } catch { }
+            // 5. 类型别名
+            f.getTypeAliases().forEach(ta => {
+                if (ta.isExported()) return;
+                const name = ta.getName();
+                const refs = f.getDescendantsOfKind(SyntaxKind.Identifier).filter(id => id.getText() === name);
+                if (refs.length <= 1) ta.remove();
+            });
+
+            // 6. 接口
+            f.getInterfaces().forEach(iface => {
+                if (iface.isExported()) return;
+                const name = iface.getName();
+                if (!name) return;
+                const refs = f.getDescendantsOfKind(SyntaxKind.Identifier).filter(id => id.getText() === name);
+                if (refs.length <= 1) iface.remove();
+            });
+        };
+
+        /**
+         * 生成输出文件名：
+         * - 入口文件 → index.ts
+         * - 其他文件 → dir_file.ts（扁平化防重名）
+         */
+        const getOutputFileName = (filePath: string): string => {
+            const normalizedFilePath = path.normalize(filePath);
+            const normalizedEntryPath = path.normalize(this.entryFilePath);
+
+            if (normalizedFilePath === normalizedEntryPath) {
+                return `index${entryExt}`;
             }
-        }
+            const relative = path.relative(this.cwdProjectInfo.pkgPath, filePath);
+            const ext = path.extname(relative);
+            return relative.replace(/\\/g, '/').replace(/[\\/]/g, '_').replace(ext, '') + ext;
+        };
 
-        // 输出文件
-        if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir, { recursive: true });
-        }
-        for (const file of project.getSourceFiles()) {
-            const filePath = posix(file.getFilePath());
-            if (!fileToFlatName.has(filePath)) continue;
-            const outputFilePath = path.join(outputDir, fileToFlatName.get(filePath)!);
-            fs.writeFileSync(outputFilePath, file.getFullText(), 'utf8');
-        }
+        /**
+         * 处理单个文件：重写导入、shaking、输出
+         */
+        const processFile = (file: SourceFile) => {
+            const filePath = file.getFilePath();
+            if (processedFiles.has(filePath)) return;
+            processedFiles.add(filePath);
+
+            const fileName = getOutputFileName(filePath);
+            const outputPath = path.join(outputDirForEntry, fileName);
+
+            if (emittedFileNames.has(fileName)) {
+                console.warn(`⚠️ 同名文件已存在，跳过: ${fileName}`);
+                return;
+            }
+
+            const dirPath = path.dirname(filePath);
+
+            // 重写 import './xxx'
+            file.getImportDeclarations().forEach(decl => {
+                const specifier = decl.getModuleSpecifierValue();
+                if (!specifier || !specifier.startsWith('.')) return;
+                const resolvedPath = resolveModulePath(specifier, dirPath);
+                if (!resolvedPath) {
+                    console.warn(`⚠️ 未找到模块，跳过导入: ${specifier}`);
+                    return;
+                }
+                const importedFileName = getOutputFileName(resolvedPath);
+                const importPathWithoutExt = importedFileName.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, ''); // ✅ 移除扩展名
+                const relativeImport = path.relative(path.dirname(outputPath), path.join(outputDirForEntry, importPathWithoutExt));
+                decl.setModuleSpecifier(relativeImport.startsWith('.') ? relativeImport : `./${relativeImport}`);
+            });
+
+            // 重写 export from './xxx'
+            file.getExportDeclarations().forEach(decl => {
+                if (!decl.hasModuleSpecifier()) return;
+                const specifier = decl.getModuleSpecifierValue();
+                if (!specifier || !specifier.startsWith('.')) return;
+                const resolvedPath = resolveModulePath(specifier, dirPath);
+                if (!resolvedPath) {
+                    console.warn(`⚠️ 未找到导出模块，跳过: ${specifier}`);
+                    return;
+                }
+                const exportedFileName = getOutputFileName(resolvedPath);
+                const exportPathWithoutExt = exportedFileName.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, ''); // ✅ 移除扩展名
+                const relativeImport = path.relative(path.dirname(outputPath), path.join(outputDirForEntry, exportPathWithoutExt));
+                decl.setModuleSpecifier(relativeImport.startsWith('.') ? relativeImport : `./${relativeImport}`);
+            });
+
+            // 收集外部依赖
+            [...file.getImportDeclarations(), ...file.getExportDeclarations()]
+                .map(decl => decl.getModuleSpecifierValue())
+                .filter((mod): mod is string => !!mod && !mod.startsWith('.'))
+                .forEach(mod => {
+                    const pkg = mod.split('/')[0];
+                    if (!this.dependenciesNode.has(pkg)) {
+                        this.dependencies[mod] = '';
+                    }
+                });
+
+            // Tree Shaking
+            treeShaking(file);
+
+            // 输出文件（保留 .ts 扩展名的物理文件）
+            const code = removeComments(file.getFullText(), filePath);
+            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+            fs.writeFileSync(outputPath, code, 'utf8');
+            emittedFileNames.add(fileName);
+
+            const displayPath = path.relative(this.distPath, outputPath);
+            console.log(`📄 已输出: ${displayPath}`);
+        };
+
+        /**
+         * 深度遍历依赖图
+         */
+        const traverse = (file: SourceFile) => {
+            const dirPath = path.dirname(file.getFilePath());
+
+            // 收集 import './xxx'
+            file.getImportDeclarations()
+                .map(decl => decl.getModuleSpecifierValue())
+                .filter((s): s is string => !!s && s.startsWith('.'))
+                .map(specifier => resolveModulePath(specifier, dirPath))
+                .filter((p): p is string => !!p)
+                .forEach(resolvedPath => {
+                    const depFile = project.addSourceFileAtPath(resolvedPath);
+                    traverse(depFile);
+                });
+
+            // 收集 export from './xxx'
+            file.getExportDeclarations()
+                .filter(decl => decl.hasModuleSpecifier())
+                .map(decl => decl.getModuleSpecifierValue())
+                .filter((s): s is string => !!s && s.startsWith('.'))
+                .map(specifier => resolveModulePath(specifier, dirPath))
+                .filter((p): p is string => !!p)
+                .forEach(resolvedPath => {
+                    const depFile = project.addSourceFileAtPath(resolvedPath);
+                    traverse(depFile);
+                });
+
+            processFile(file);
+        };
+
+        // ========== 主流程 ==========
+        traverse(sourceFile);
+        console.log(`✅ 抽取完成，共输出 ${emittedFileNames.size} 个文件`);
+        console.log(`📁 入口文件路径: ${entryBasename}/index${entryExt}`);
     }
 }
