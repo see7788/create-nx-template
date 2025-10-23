@@ -264,13 +264,17 @@ export default class extends LibBase {
          * 生成输出文件名
          */
         const getOutputFileName = (filePath: string): string => {
-            console.log(filePath,this.entryFilePath)
-            if (filePath === this.entryFilePath) {
+            // ✅ 标准化路径：统一为操作系统默认分隔符（Windows: \, POSIX: /）
+            const normalizedFilePath = path.normalize(filePath);
+            const normalizedEntryPath = path.normalize(this.entryFilePath);
+
+            if (normalizedFilePath === normalizedEntryPath) {
                 return `index${entryExt}`;
             }
+
             const relative = path.relative(this.cwdProjectInfo.pkgPath, filePath);
             const ext = path.extname(relative);
-            return relative.replace(/\\/g, '/').replace(/[\\/]/g, '_').replace(ext, '') + ext;
+            return relative.replace(/\\/g, '/').replace(/[\\/]/g, '_') + ext;
         };
 
         /**
