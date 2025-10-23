@@ -123,16 +123,47 @@ export default class extends LibBase {
     private async createJson() {
         console.log(this.dependencies)
     }
-
+    /**
+     * 提取入口文件及其依赖到目标目录
+     * 输出路径基于入口文件路径生成：{项目根}/dist-extract/{包名}/{入口相对路径扁平化}
+     * 例如：packages/lib-a/src/main.ts → dist-extract/lib-a/src_main.ts
+     */
     public async extractToFile(): Promise<void> {
+        // 1. 计算输出目录
+        const entryDirname = path.dirname(this.entryFilePath);
+        const entryExt = path.extname(this.entryFilePath);
+        const projectRoot = this.cwdProjectInfo.pkgPath;
 
+        // 从 package.json 或路径推断包名
+        const pkgJsonPath = path.join(projectRoot, 'package.json');
+        let pkgName = 'unknown';
+        if (fs.existsSync(pkgJsonPath)) {
+            const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+            pkgName = (pkg.name || 'unknown').replace(/@[^/]+[/]/, ''); // 去掉 scope
+        }
 
-        // 使用 ts-morph 解析源文件
+        // 生成扁平化的子路径（如 src/utils/index.ts → src_utils_index）
+        const relativeToProject = path.relative(projectRoot, entryDirname);
+        const flatSubPath = relativeToProject ? relativeToProject.replace(/[\\/]/g, '_') + '_' : '';
+
+        // 最终输出目录：{projectRoot}/dist-extract/{pkgName}/{subpath}
+        const baseOutputDir = path.join(projectRoot, 'dist-extract', pkgName, flatSubPath);
+        const outputDir = path.join(baseOutputDir, '..'); // 确保输出到包名目录
+
+        // 2. 确保输出目录存在
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+
+        // 3. 初始化依赖收集
+        this.dependencies = {};
+
+        // 4. 使用 ts-morph 解析文件
         const project = new Project();
         const sourceFilesToProcess: SourceFile[] = [project.addSourceFileAtPath(this.entryFilePath)];
-        const processedFiles = new Set<string>(); // 防止重复处
+        const processedFiles = new Set<string>();
 
-        // 遍历所有依赖文件
+        // 5. 遍历所有依赖文件，收集模块依赖
         while (sourceFilesToProcess.length > 0) {
             const file = sourceFilesToProcess.shift()!;
             const filePath = file.getFilePath();
@@ -140,16 +171,16 @@ export default class extends LibBase {
             if (processedFiles.has(filePath)) continue;
             processedFiles.add(filePath);
 
-            // 收集所有非相对/非绝对路径的导入模块（即第三方或内部包）
+            // 收集所有非相对/非绝对路径的导入（即模块名）
             file.getImportDeclarations()
                 .map(decl => decl.getModuleSpecifierValue())
                 .filter((mod): mod is string => !!mod)
-                .filter(mod => !mod.startsWith('.') && !path.isAbsolute(mod)) // 排除相对和绝对路径
+                .filter(mod => !mod.startsWith('.') && !path.isAbsolute(mod))
                 .forEach(mod => {
                     const pkgName = mod.startsWith('@')
-                        ? mod.split('/').slice(0, 2).join('/') // 完整 scope 包名，如 @org/name
-                        : mod.split('/')[0]; // 基础包名，如 lodash
-                    this.dependencies[pkgName] = ''; // 仅存键，值由外部填充
+                        ? mod.split('/').slice(0, 2).join('/') // @scope/name
+                        : mod.split('/')[0]; // name
+                    this.dependencies[pkgName] = ''; // 值留空，后续填充
                 });
 
             // 收集相对导入的文件用于递归处理
@@ -162,8 +193,8 @@ export default class extends LibBase {
                         const resolvedPath = path.resolve(path.dirname(filePath), relativeMod);
                         let actualPath = '';
 
-                        // 尝试解析 .ts 文件
-                        for (const ext of ['.ts', '.tsx', '.js', '.jsx']) {
+                        // 尝试常见扩展名
+                        for (const ext of ['.ts', '.tsx', '.js', '.jsx', '']) {
                             const tryPath = resolvedPath + ext;
                             if (fs.existsSync(tryPath)) {
                                 actualPath = tryPath;
@@ -171,7 +202,7 @@ export default class extends LibBase {
                             }
                         }
 
-                        // 尝试解析目录下的 index 文件
+                        // 尝试 index 文件
                         if (!actualPath) {
                             for (const ext of ['.ts', '.tsx', '.js', '.jsx']) {
                                 const tryPath = path.join(resolvedPath, `index${ext}`);
@@ -187,22 +218,22 @@ export default class extends LibBase {
                             if (depFile) sourceFilesToProcess.push(depFile);
                         }
                     } catch {
-                        // 解析失败则跳过（如类型声明、未安装包等）
+                        // 忽略无法解析的模块
                     }
                 });
         }
 
-        // 写出所有源文件到输出目录（扁平化命名）
+        // 6. 写出所有源文件（扁平化命名）
         processedFiles.clear();
         project.getSourceFiles().forEach(file => {
             const filePath = file.getFilePath();
-            if (!filePath.includes(this.cwdProjectInfo.pkgPath) || processedFiles.has(filePath)) return;
+            if (!filePath.includes(projectRoot) || processedFiles.has(filePath)) return;
             processedFiles.add(filePath);
 
-            const relativePath = path.relative(this.cwdProjectInfo.pkgPath, filePath);
+            const relativePath = path.relative(projectRoot, filePath);
             const ext = path.extname(relativePath);
 
-            // 入口文件命名为 index.{ext}
+            // 入口文件输出为 index.{ext}
             let outputFileName: string;
             if (path.normalize(filePath) === path.normalize(this.entryFilePath)) {
                 outputFileName = `index${ext}`;
@@ -210,7 +241,7 @@ export default class extends LibBase {
                 outputFileName = relativePath.replace(/[\\/]/g, '_');
             }
 
-            const outputPath = path.join(this.distPath, outputFileName);
+            const outputPath = path.join(outputDir, outputFileName);
             fs.writeFileSync(outputPath, file.getFullText(), 'utf-8');
         });
     }
