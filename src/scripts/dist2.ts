@@ -12,14 +12,7 @@ export default class extends LibBase {
     private entryFilePath!: string
     //产物目录名称
     private distDirName: string = "dist";
-    private dependenciesNode = new Set([
-        'assert', 'buffer', 'child_process', 'cluster', 'console', 'constants',
-        'crypto', 'dgram', 'dns', 'domain', 'events', 'fs', 'http', 'https',
-        'module', 'net', 'os', 'path', 'os', 'punycode', 'querystring', 'readline',
-        'repl', 'stream', 'string_decoder', 'sys', 'timers', 'tls', 'tty',
-        'url', 'util', 'vm', 'zlib', 'process', 'v8', 'worker_threads'
-    ]);
-    private dependencies: Record<string, string> = {}
+    private dependencies: Set<string> = new Set()
     private get distPath() {
         return path.join(this.cwdProjectInfo.cwdPath, this.distDirName)
     }
@@ -36,9 +29,10 @@ export default class extends LibBase {
         console.log('📋 2. 交互定义入口文件');
         await this.askEntryFilePath();
 
-        console.log('⚙️3. 抽取js,.d.ts,插件里实现依赖抽取');
+        console.log('⚙️3. 源码依赖抽取、依赖抽取');
         await this.extractToFile();
 
+        console.log('⚙️4. 生成package.json');
         await this.createJson();
         console.log('\n🚀 完成抽取流程');
     }
@@ -324,9 +318,7 @@ export default class extends LibBase {
                 .filter((mod): mod is string => !!mod && !mod.startsWith('.'))
                 .forEach(mod => {
                     const pkg = mod.split('/')[0];
-                    if (!this.dependenciesNode.has(pkg)) {
-                        this.dependencies[mod] = '';
-                    }
+                    this.dependencies.add(pkg)
                 });
 
             // Tree Shaking

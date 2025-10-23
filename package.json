@@ -14,7 +14,7 @@
     "npx": "node dist/index.js"
   },
   "bin": {
-    "create-todo-cli": "dist/index.js"
+    "create-todo-cli": "./bin/create-todo-cli.cmd"
   },
   "engines": {
     "node": ">=18"
