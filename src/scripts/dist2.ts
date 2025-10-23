@@ -284,19 +284,68 @@ export default class extends LibBase {
             if (processedFiles.has(filePath)) return;
             processedFiles.add(filePath);
 
-            // 生成唯一文件名：使用相对路径转下划线，避免 index.ts 冲突
+            // 生成安全文件名（扁平化）
             const relativePath = path.relative(this.cwdProjectInfo.pkgPath, filePath);
             const safeName = relativePath
-                .replace(/^(\.\.\/)+/, '') // 去掉 ../
-                .replace(/[\\/]/g, '_')   // 路径分隔符转 _
-                .replace(/\.(tsx?|jsx?)$/, '.ts'); // 统一输出为 .ts
+                .replace(/^(\.\.\/)+/, '')
+                .replace(/[\\/]/g, '_')
+                .replace(/\.(tsx?|jsx?)$/, '.ts');
 
             if (emittedFileNames.has(safeName)) {
-                console.warn(`⚠️ 文件名重复，跳过: ${safeName} (原: ${relativePath})`);
+                console.warn(`⚠️ 文件名重复，跳过: ${safeName}`);
                 return;
             }
 
-            // 收集第三方依赖
+            // -------------------------------
+            // ✅ 新增：重写所有相对导入和导出
+            // -------------------------------
+
+            // 1. 重写 import './xxx' -> import 'xxx_flattened_name'
+            file.getImportDeclarations().forEach(decl => {
+                const specifier = decl.getModuleSpecifierValue();
+                if (!specifier) return;
+
+                if (specifier.startsWith('.')) {
+                    // 是相对路径，需要解析并重写
+                    const dirPath = path.dirname(filePath);
+                    const resolvedPath = resolveModulePath(specifier, dirPath);
+                    if (resolvedPath) {
+                        const resolvedRel = path.relative(this.cwdProjectInfo.pkgPath, resolvedPath);
+                        const resolvedSafeName = resolvedRel
+                            .replace(/^(\.\.\/)+/, '')
+                            .replace(/[\\/]/g, '_')
+                            .replace(/\.(tsx?|jsx?)$/, '.ts');
+
+                        decl.setModuleSpecifier(resolvedSafeName); // ✅ 重写为扁平化后的文件名
+                    }
+                }
+                // 第三方依赖保留原样
+            });
+
+            // 2. 重写 export from './xxx'
+            file.getExportDeclarations().forEach(decl => {
+                if (!decl.hasModuleSpecifier()) return;
+                const specifier = decl.getModuleSpecifierValue();
+                if (!specifier) return;
+
+                if (specifier.startsWith('.')) {
+                    const dirPath = path.dirname(filePath);
+                    const resolvedPath = resolveModulePath(specifier, dirPath);
+                    if (resolvedPath) {
+                        const resolvedRel = path.relative(this.cwdProjectInfo.pkgPath, resolvedPath);
+                        const resolvedSafeName = resolvedRel
+                            .replace(/^(\.\.\/)+/, '')
+                            .replace(/[\\/]/g, '_')
+                            .replace(/\.(tsx?|jsx?)$/, '.ts');
+
+                        decl.setModuleSpecifier(resolvedSafeName); // ✅ 重写
+                    }
+                }
+            });
+
+            // -------------------------------
+            // 收集第三方依赖（不变）
+            // -------------------------------
             file.getImportDeclarations().forEach(decl => {
                 const moduleName = decl.getModuleSpecifierValue();
                 if (moduleName && !moduleName.startsWith('.')) {
@@ -317,16 +366,14 @@ export default class extends LibBase {
                 }
             });
 
-            // 执行 Tree Shaking
+            // -------------------------------
+            // Tree Shaking & 输出
+            // -------------------------------
             doTreeShaking(file);
 
-            // 获取处理后代码
             const modifiedCode = file.getFullText();
-
-            // 移除注释
             const cleanedCode = removeCommentsFromText(modifiedCode, filePath);
 
-            // 输出文件
             const outputPath = path.join(this.distPath, safeName);
             fs.mkdirSync(path.dirname(outputPath), { recursive: true });
             fs.writeFileSync(outputPath, cleanedCode, 'utf8');
